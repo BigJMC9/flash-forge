@@ -35,10 +35,9 @@ type ActionWithFilesRequest = ActionRequest & {
 };
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url));
-const repoRoot = path.resolve(currentDir, '..', '..');
+const repoRoot = path.resolve(currentDir, '..');
 const sidecarScript = path.resolve(
   repoRoot,
-  'desktop_app',
   'python_sidecar',
   'main.py',
 );

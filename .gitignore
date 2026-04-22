@@ -1,1 +1,10 @@
 node_modules/**
+**.toc
+**.pyz
+**.zip
+**.pkg
+**.db
+**.spec
+**.pyc
+**.exe
+**.log
