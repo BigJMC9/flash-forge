@@ -49,11 +49,14 @@ export interface DashboardSummary {
 }
 
 export type PracticeModeKey =
+  | 'verb_sort'
+  | 'adjective_sort'
   | 'word_class_sort'
   | 'adjective_conjugation'
-  | 'verb_conjugation';
+  | 'verb_conjugation'
+  | 'reading_comprehension';
 
-export type PracticeGameType = 'bucket_sort' | 'text_entry';
+export type PracticeGameType = 'bucket_sort' | 'text_entry' | 'reading_quiz';
 
 export interface PracticeModeOption {
   key: PracticeModeKey;
@@ -203,6 +206,14 @@ export interface PracticeRoundOptions {
   round_size: number;
   verb_forms: string[];
   adjective_forms: string[];
+  verb_sort_only_ru_endings: boolean;
+  verb_sort_include_suru_verbs: boolean;
+  verb_sort_include_suru_nouns: boolean;
+  adjective_sort_only_i_endings: boolean;
+  reading_level: 'beginner' | 'intermediate' | 'advanced' | string;
+  reading_source: 'story' | 'news_style' | string;
+  reading_topic: string;
+  reading_question_count: number;
 }
 
 export interface PracticeRoundResponse {
@@ -227,6 +238,32 @@ export interface PracticeAnswerRow {
   correct: boolean;
   elapsed_seconds: number;
   delta_points: number;
+}
+
+export interface ReadingComprehensionQuestion {
+  id: string;
+  question: string;
+  choices: string[];
+  correct_index: number;
+  explanation: string;
+}
+
+export interface ReadingComprehensionWord {
+  word: string;
+  reading: string;
+  meaning: string;
+  part_of_speech: string;
+  note: string;
+}
+
+export interface ReadingComprehensionResponse {
+  deck_id: string;
+  title: string;
+  source_note: string;
+  passage: string;
+  questions: ReadingComprehensionQuestion[];
+  new_words: ReadingComprehensionWord[];
+  options_used: PracticeRoundOptions;
 }
 
 export interface ScanPreviewRow {

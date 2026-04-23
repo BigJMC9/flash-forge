@@ -379,3 +379,152 @@ def ExtractCardsFromImages(
                 progressCallback(uploadIndex, totalUploads, f"Scanned {upload.name} ({uploadIndex}/{totalUploads})")
 
     return candidates, errors
+
+
+def GenerateReadingComprehensionPackage(
+    client: OpenAI,
+    model: str,
+    preferredVocabulary: List[Dict[str, str]],
+    supportVocabulary: List[Dict[str, str]],
+    readingLevel: str = "intermediate",
+    sourceStyle: str = "story",
+    topicHint: str = "",
+    questionCount: int = 4,
+) -> Dict[str, Any]:
+    normalizedLevel = (readingLevel or "intermediate").strip().lower() or "intermediate"
+    normalizedSourceStyle = (sourceStyle or "story").strip().lower() or "story"
+    normalizedTopicHint = (topicHint or "").strip()
+    normalizedQuestionCount = max(3, min(6, int(questionCount or 4)))
+
+    promptPayload = {
+        "task": "Generate a Japanese reading-comprehension package for learners.",
+        "reading_level": normalizedLevel,
+        "source_style": normalizedSourceStyle,
+        "topic_hint": normalizedTopicHint,
+        "question_count": normalizedQuestionCount,
+        "preferred_vocabulary": preferredVocabulary[:48],
+        "support_vocabulary": supportVocabulary[:96],
+        "rules": [
+            "Write the passage entirely in Japanese.",
+            "Use the preferred_vocabulary heavily; those deck words should drive the situation and topic.",
+            "Support vocabulary may appear, but only as secondary reinforcement.",
+            "Introduce new words slowly and sparingly. At most 6 new words total.",
+            "If source_style is 'news_style', write in an original short news-report style. Do not quote or imitate a real article.",
+            "All quiz questions, answer choices, and explanations must be in Japanese.",
+            "Questions must be multiple choice with exactly 4 answer choices each.",
+            "Return JSON only.",
+        ],
+        "json_schema": {
+            "title": "string",
+            "source_note": "string",
+            "passage": "string",
+            "questions": [
+                {
+                    "id": "string",
+                    "question": "string",
+                    "choices": ["string", "string", "string", "string"],
+                    "correct_index": 0,
+                    "explanation": "string",
+                }
+            ],
+            "new_words": [
+                {
+                    "word": "string",
+                    "reading": "string",
+                    "meaning": "string",
+                    "part_of_speech": "string",
+                    "note": "string",
+                }
+            ],
+        },
+    }
+
+    raw = RequestResponseText(
+        client,
+        model,
+        [
+            {
+                "role": "system",
+                "content": (
+                    "You create Japanese reading-comprehension material for learners. "
+                    "Be precise, natural, and curriculum-aware. "
+                    "Output valid JSON only."
+                ),
+            },
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "input_text",
+                        "text": json.dumps(promptPayload, ensure_ascii=False),
+                    }
+                ],
+            },
+        ],
+    )
+    parsed = ParseJsonResponse(raw)
+
+    title = str(parsed.get("title") or "").strip() or "読解"
+    sourceNote = str(parsed.get("source_note") or "").strip()
+    passage = str(parsed.get("passage") or "").strip()
+
+    if not passage:
+        raise ValueError("The reading passage was empty.")
+
+    questions: List[Dict[str, Any]] = []
+    for index, rawQuestion in enumerate(parsed.get("questions") or [], start=1):
+        question = str(rawQuestion.get("question") or "").strip()
+        choices = [str(choice or "").strip() for choice in rawQuestion.get("choices") or []]
+        explanation = str(rawQuestion.get("explanation") or "").strip()
+        try:
+            correctIndex = int(rawQuestion.get("correct_index", 0))
+        except (TypeError, ValueError):
+            correctIndex = 0
+
+        if not question or len(choices) != 4 or not explanation:
+            continue
+        if correctIndex < 0 or correctIndex >= len(choices):
+            continue
+
+        questions.append(
+            {
+                "id": str(rawQuestion.get("id") or f"q{index}").strip() or f"q{index}",
+                "question": question,
+                "choices": choices,
+                "correct_index": correctIndex,
+                "explanation": explanation,
+            }
+        )
+
+    if len(questions) < 3:
+        raise ValueError("The AI did not return enough quiz questions.")
+
+    newWords: List[Dict[str, str]] = []
+    for rawWord in parsed.get("new_words") or []:
+        word = str(rawWord.get("word") or "").strip()
+        reading = str(rawWord.get("reading") or "").strip()
+        meaning = str(rawWord.get("meaning") or "").strip()
+        partOfSpeech = str(rawWord.get("part_of_speech") or "").strip()
+        note = str(rawWord.get("note") or "").strip()
+        if not word:
+            continue
+        newWords.append(
+            {
+                "word": word,
+                "reading": reading or word,
+                "meaning": meaning,
+                "part_of_speech": partOfSpeech,
+                "note": note,
+            }
+        )
+
+    return {
+        "title": title,
+        "source_note": sourceNote,
+        "passage": passage,
+        "questions": questions[:normalizedQuestionCount],
+        "new_words": newWords[:6],
+        "reading_level": normalizedLevel,
+        "source_style": normalizedSourceStyle,
+        "topic_hint": normalizedTopicHint,
+    }

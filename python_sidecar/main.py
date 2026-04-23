@@ -81,7 +81,11 @@ from AnkiDeckBuilder.JamdictService import (
     VerbFormLabels,
     VerbTypeLabels,
 )
-from AnkiDeckBuilder.OpenAiService import ExtractCardsFromImages, GetOpenAiClient
+from AnkiDeckBuilder.OpenAiService import (
+    ExtractCardsFromImages,
+    GenerateReadingComprehensionPackage,
+    GetOpenAiClient,
+)
 from AnkiDeckBuilder.Pages import (
     BuildScanCandidateNote,
     ExpandExtractedScanCandidates,
@@ -100,11 +104,18 @@ PRACTICE_INCORRECT_PENALTY_POINTS = 2
 DEFAULT_PRACTICE_ROUND_SIZE = 18
 DEFAULT_VERB_CONJUGATION_FORMS = ["te", "past", "negative"]
 DEFAULT_ADJECTIVE_CONJUGATION_FORMS = ["past", "negative"]
+DEFAULT_READING_COMPREHENSION_LEVEL = "intermediate"
+DEFAULT_READING_COMPREHENSION_SOURCE = "story"
 PRACTICE_MODE_OPTIONS = [
+    {"key": "verb_sort", "label": "Verb Sort (Ichidan vs Godan vs Suru)"},
+    {"key": "adjective_sort", "label": "Adjective Sort (い vs な)"},
     {"key": "word_class_sort", "label": "Word Class Bucket Sort"},
     {"key": "adjective_conjugation", "label": "Adjective Conjugation Builder"},
     {"key": "verb_conjugation", "label": "Verb Conjugation Builder"},
+    {"key": "reading_comprehension", "label": "Reading Comprehension"},
 ]
+PRACTICE_VERB_SORT_BUCKET_ORDER = ["ichidan", "godan", "suru"]
+PRACTICE_ADJECTIVE_SORT_BUCKET_ORDER = ["i_adj", "na_adj"]
 PRACTICE_WORD_CLASS_BUCKET_ORDER = [
     "verb",
     "i_adj",
@@ -119,6 +130,7 @@ PRACTICE_BUCKET_LABELS = {
     "verb": "Verb",
     "ichidan": "Ichidan",
     "godan": "Godan",
+    "suru": "Suru",
     "i_adj": "I-adjective (い)",
     "na_adj": "Na-adjective (な)",
     "noun": "Noun",
@@ -282,12 +294,57 @@ def normalize_practice_round_size(raw_value: Any) -> int:
     return max(6, min(round_size, 40))
 
 
+def normalize_boolean_option(raw_value: Any, default: bool) -> bool:
+    if isinstance(raw_value, bool):
+        return raw_value
+    if raw_value is None:
+        return default
+    return str(raw_value).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def normalize_question_count(raw_value: Any, default: int = 4) -> int:
+    try:
+        question_count = int(raw_value)
+    except (TypeError, ValueError):
+        question_count = default
+    return max(3, min(question_count, 6))
+
+
 def normalize_practice_options(mode: str, raw_options: Any) -> Dict[str, Any]:
     options = raw_options if isinstance(raw_options, dict) else {}
     normalized = {
         "round_size": normalize_practice_round_size(options.get("round_size", DEFAULT_PRACTICE_ROUND_SIZE)),
         "verb_forms": list(DEFAULT_VERB_CONJUGATION_FORMS),
         "adjective_forms": list(DEFAULT_ADJECTIVE_CONJUGATION_FORMS),
+        "verb_sort_only_ru_endings": normalize_boolean_option(
+            options.get("verb_sort_only_ru_endings"),
+            False,
+        ),
+        "verb_sort_include_suru_verbs": normalize_boolean_option(
+            options.get("verb_sort_include_suru_verbs"),
+            True,
+        ),
+        "verb_sort_include_suru_nouns": normalize_boolean_option(
+            options.get("verb_sort_include_suru_nouns"),
+            True,
+        ),
+        "adjective_sort_only_i_endings": normalize_boolean_option(
+            options.get("adjective_sort_only_i_endings"),
+            False,
+        ),
+        "reading_level": normalize_text(
+            options.get("reading_level", DEFAULT_READING_COMPREHENSION_LEVEL)
+        ).lower()
+        or DEFAULT_READING_COMPREHENSION_LEVEL,
+        "reading_source": normalize_text(
+            options.get("reading_source", DEFAULT_READING_COMPREHENSION_SOURCE)
+        ).lower()
+        or DEFAULT_READING_COMPREHENSION_SOURCE,
+        "reading_topic": normalize_text(options.get("reading_topic", "")),
+        "reading_question_count": max(
+            3,
+            min(6, normalize_question_count(options.get("reading_question_count", 4), 4)),
+        ),
     }
     if mode == "verb_conjugation":
         normalized["verb_forms"] = normalize_practice_option_list(
@@ -301,6 +358,10 @@ def normalize_practice_options(mode: str, raw_options: Any) -> Dict[str, Any]:
             list(PRACTICE_ADJECTIVE_FORM_LABELS.keys()),
             DEFAULT_ADJECTIVE_CONJUGATION_FORMS,
         )
+    if normalized["reading_level"] not in {"beginner", "intermediate", "advanced"}:
+        normalized["reading_level"] = DEFAULT_READING_COMPREHENSION_LEVEL
+    if normalized["reading_source"] not in {"story", "news_style"}:
+        normalized["reading_source"] = DEFAULT_READING_COMPREHENSION_SOURCE
     return normalized
 
 
@@ -357,9 +418,21 @@ def build_card_face_text(card: Any, field_names: List[str]) -> str:
     return " | ".join(values)
 
 
-def build_practice_prompt(card: Any) -> str:
+def get_base_word_and_reading(card: Any) -> Tuple[str, str]:
     base_word = get_card_text(card, "dictionary_headword") or get_card_text(card, "kanji")
     base_reading = get_card_text(card, "dictionary_reading") or get_card_text(card, "kana")
+    if not base_word:
+        base_word = base_reading
+    return base_word, base_reading
+
+
+def word_or_reading_ends_with(card: Any, ending: str) -> bool:
+    base_word, base_reading = get_base_word_and_reading(card)
+    return base_reading.endswith(ending) or base_word.endswith(ending)
+
+
+def build_practice_prompt(card: Any) -> str:
+    base_word, base_reading = get_base_word_and_reading(card)
     if base_word and base_reading and base_word != base_reading:
         return f"{base_word} [{base_reading}]"
     return base_word or base_reading
@@ -408,6 +481,31 @@ def detect_practice_verb_type(card: Any) -> str:
     return ""
 
 
+def detect_practice_verb_sort_bucket(card: Any, options: Dict[str, Any]) -> str:
+    verb_type = detect_practice_verb_type(card)
+    if not verb_type:
+        return ""
+
+    if options.get("verb_sort_only_ru_endings") and not word_or_reading_ends_with(card, "る"):
+        return ""
+
+    if verb_type in {"suru", "kuru"}:
+        if not options.get("verb_sort_include_suru_verbs", True):
+            return ""
+        return "suru"
+
+    if verb_type == "suru_noun":
+        if not options.get("verb_sort_include_suru_verbs", True):
+            return ""
+        if not options.get("verb_sort_include_suru_nouns", True):
+            return ""
+        return "suru"
+
+    if verb_type in {"ichidan", "godan"}:
+        return verb_type
+    return ""
+
+
 def detect_practice_word_class_bucket(card: Any) -> str:
     pos_tags = get_dictionary_pos_tags(card)
     normalized_tags = [tag.lower() for tag in pos_tags]
@@ -435,6 +533,15 @@ def detect_practice_word_class_bucket(card: Any) -> str:
 
 def detect_practice_adjective_bucket(card: Any) -> str:
     return classify_practice_adjective_tags(get_dictionary_pos_tags(card))
+
+
+def detect_practice_adjective_sort_bucket(card: Any, options: Dict[str, Any]) -> str:
+    adjective_bucket = detect_practice_adjective_bucket(card)
+    if not adjective_bucket:
+        return ""
+    if options.get("adjective_sort_only_i_endings") and not word_or_reading_ends_with(card, "い"):
+        return ""
+    return adjective_bucket
 
 def explain_adjective_filter(card: Any) -> str:
     pos_tags = get_dictionary_pos_tags(card)
@@ -1443,6 +1550,84 @@ def action_get_revision_cards(payload: Dict[str, Any]) -> Dict[str, Any]:
     return {"deck_id": deck_id, "rows": rows}
 
 
+def build_verb_sort_rows(cards: List[Any], options: Dict[str, Any]) -> Dict[str, Any]:
+    rows: List[Dict[str, Any]] = []
+    filtered_rows: List[Dict[str, Any]] = []
+    seen_keys = set()
+
+    for card in cards:
+        bucket = detect_practice_verb_sort_bucket(card, options)
+        if not bucket:
+            filtered_rows.append(
+                {
+                    "prompt": build_practice_prompt(card),
+                    "hint": build_practice_hint(card),
+                    "dictionary_pos": get_card_text(card, "dictionary_pos"),
+                    "dictionary_pos_tags": get_dictionary_pos_tags(card),
+                    "reason": "filtered:verb_sort_options_or_type",
+                }
+            )
+            continue
+
+        dedupe_key = build_practice_dedupe_key(card, f"verb_sort:{bucket}")
+        if dedupe_key in seen_keys:
+            continue
+        seen_keys.add(dedupe_key)
+
+        prompt = build_practice_prompt(card)
+        if not prompt:
+            continue
+        rows.append(
+            {
+                "id": dedupe_key,
+                "prompt": prompt,
+                "hint": build_practice_hint(card),
+                "expected": bucket,
+            }
+        )
+
+    return {"rows": rows, "filtered_rows": filtered_rows}
+
+
+def build_adjective_sort_rows(cards: List[Any], options: Dict[str, Any]) -> Dict[str, Any]:
+    rows: List[Dict[str, Any]] = []
+    filtered_rows: List[Dict[str, Any]] = []
+    seen_keys = set()
+
+    for card in cards:
+        bucket = detect_practice_adjective_sort_bucket(card, options)
+        if not bucket:
+            filtered_rows.append(
+                {
+                    "prompt": build_practice_prompt(card),
+                    "hint": build_practice_hint(card),
+                    "dictionary_pos": get_card_text(card, "dictionary_pos"),
+                    "dictionary_pos_tags": get_dictionary_pos_tags(card),
+                    "reason": explain_adjective_filter(card),
+                }
+            )
+            continue
+
+        dedupe_key = build_practice_dedupe_key(card, f"adjective_sort:{bucket}")
+        if dedupe_key in seen_keys:
+            continue
+        seen_keys.add(dedupe_key)
+
+        prompt = build_practice_prompt(card)
+        if not prompt:
+            continue
+        rows.append(
+            {
+                "id": dedupe_key,
+                "prompt": prompt,
+                "hint": build_practice_hint(card),
+                "expected": bucket,
+            }
+        )
+
+    return {"rows": rows, "filtered_rows": filtered_rows}
+
+
 def build_word_class_sort_rows(cards: List[Any]) -> Dict[str, Any]:
     rows: List[Dict[str, Any]] = []
     filtered_rows: List[Dict[str, Any]] = []
@@ -1594,15 +1779,37 @@ def build_practice_round_cards(deck_id: str, mode: str, options: Optional[Dict[s
         return {
             "rows": [],
             "filtered_rows": [],
-            "game_type": "text_entry" if mode in {"adjective_conjugation", "verb_conjugation"} else "bucket_sort",
-            "bucket_order": list(PRACTICE_WORD_CLASS_BUCKET_ORDER) if mode == "word_class_sort" else [],
+            "game_type": "reading_quiz"
+            if mode == "reading_comprehension"
+            else "text_entry"
+            if mode in {"adjective_conjugation", "verb_conjugation"}
+            else "bucket_sort",
+            "bucket_order": list(PRACTICE_VERB_SORT_BUCKET_ORDER)
+            if mode == "verb_sort"
+            else list(PRACTICE_ADJECTIVE_SORT_BUCKET_ORDER)
+            if mode == "adjective_sort"
+            else list(PRACTICE_WORD_CLASS_BUCKET_ORDER)
+            if mode == "word_class_sort"
+            else [],
             "options_used": normalize_practice_options(mode, options),
         }
 
     normalized_options = normalize_practice_options(mode, options)
     cards = list(GetDeckCards(get_connection(), deck_id))
 
-    if mode == "adjective_conjugation":
+    if mode == "reading_comprehension":
+        result = {"rows": [], "filtered_rows": []}
+        game_type = "reading_quiz"
+        bucket_order = []
+    elif mode == "verb_sort":
+        result = build_verb_sort_rows(cards, normalized_options)
+        game_type = "bucket_sort"
+        bucket_order = list(PRACTICE_VERB_SORT_BUCKET_ORDER)
+    elif mode == "adjective_sort":
+        result = build_adjective_sort_rows(cards, normalized_options)
+        game_type = "bucket_sort"
+        bucket_order = list(PRACTICE_ADJECTIVE_SORT_BUCKET_ORDER)
+    elif mode == "adjective_conjugation":
         result = build_adjective_conjugation_rows(cards, normalized_options["adjective_forms"])
         game_type = "text_entry"
         bucket_order: List[str] = []
@@ -1655,6 +1862,208 @@ def action_get_practice_round(payload: Dict[str, Any]) -> Dict[str, Any]:
     return response
 
 
+def build_vocabulary_seed_from_rows(
+    rows: List[Any],
+    source_label: str,
+    limit: int,
+) -> List[Dict[str, str]]:
+    items: List[Dict[str, str]] = []
+    seen = set()
+    for row in rows:
+        if len(items) >= limit:
+            break
+        word = normalize_text(row["dictionary_headword"] or row["kanji"])
+        reading = normalize_text(row["dictionary_reading"] or row["kana"]) or word
+        meaning = normalize_text(row["dictionary_gloss"] or row["english"])
+        if not word or not reading:
+            continue
+        dedupe_key = f"{word}|{reading}"
+        if dedupe_key in seen:
+            continue
+        seen.add(dedupe_key)
+        items.append(
+            {
+                "word": word,
+                "reading": reading,
+                "meaning": meaning,
+                "source": source_label,
+            }
+        )
+    return items
+
+
+def build_reading_topic_hint(deck_rows: List[Any], explicit_topic: str) -> str:
+    if explicit_topic:
+        return explicit_topic
+
+    topic_tags: List[str] = []
+    for row in deck_rows:
+        for tag in DecodeJsonStringList(row["tags_json"]):
+            normalized_tag = normalize_text(tag)
+            if normalized_tag and normalized_tag not in topic_tags:
+                topic_tags.append(normalized_tag)
+            if len(topic_tags) >= 8:
+                break
+        if len(topic_tags) >= 8:
+            break
+
+    return ", ".join(topic_tags)
+
+
+def action_generate_reading_comprehension(payload: Dict[str, Any]) -> Dict[str, Any]:
+    deck_id = normalize_text(payload.get("deck_id", ""))
+    if not deck_id:
+        raise RuntimeError("deck_id is required.")
+
+    options = normalize_practice_options("reading_comprehension", payload.get("options", {}))
+    connection = get_connection()
+    deck_rows = list(GetDeckCards(connection, deck_id))
+    if not deck_rows:
+        raise RuntimeError("No deck cards are available for reading comprehension.")
+
+    global_rows = list(ListGlobalCards(connection))
+    preferred_vocabulary = build_vocabulary_seed_from_rows(deck_rows, "deck", limit=48)
+    support_vocabulary = build_vocabulary_seed_from_rows(global_rows, "global", limit=96)
+    topic_hint = build_reading_topic_hint(deck_rows, options.get("reading_topic", ""))
+
+    client = GetOpenAiClient()
+    package = GenerateReadingComprehensionPackage(
+        client,
+        DefaultModel,
+        preferred_vocabulary,
+        support_vocabulary,
+        readingLevel=options.get("reading_level", DEFAULT_READING_COMPREHENSION_LEVEL),
+        sourceStyle=options.get("reading_source", DEFAULT_READING_COMPREHENSION_SOURCE),
+        topicHint=topic_hint,
+        questionCount=options.get("reading_question_count", 4),
+    )
+
+    return {
+        "deck_id": deck_id,
+        "title": package["title"],
+        "source_note": package["source_note"],
+        "passage": package["passage"],
+        "questions": package["questions"],
+        "new_words": package["new_words"],
+        "options_used": options,
+    }
+
+
+def action_add_reading_new_word(payload: Dict[str, Any]) -> Dict[str, Any]:
+    destination = normalize_text(payload.get("destination", "global")) or "global"
+    deck_id = normalize_text(payload.get("deck_id", ""))
+    word = normalize_text(payload.get("word", ""))
+    reading = normalize_text(payload.get("reading", "")) or word
+    meaning = normalize_text(payload.get("meaning", ""))
+    part_of_speech = normalize_text(payload.get("part_of_speech", ""))
+    note = normalize_text(payload.get("note", ""))
+
+    if not word:
+        raise RuntimeError("word is required.")
+    if destination == "deck" and not deck_id:
+        raise RuntimeError("deck_id is required when destination is deck.")
+
+    connection = get_connection()
+    tags = ["reading_comprehension", "new_vocab"]
+    notes = " | ".join(
+        [value for value in ["Added from reading comprehension", part_of_speech, note] if value]
+    )
+
+    resolved_entry = ResolveBestDictionaryEntry(
+        sourceKanji=word,
+        sourceKana=reading,
+        visibleText=word,
+    )
+    if resolved_entry:
+        if destination == "global":
+            added = AddGlobalCard(
+                connection,
+                BuildGlobalCardFromDictionaryEntry(
+                    resolved_entry,
+                    tags=tags,
+                    notes=notes,
+                    englishOverride=meaning,
+                ),
+            )
+        else:
+            added = AddCard(
+                connection,
+                deck_id,
+                BuildCardFromDictionaryEntry(
+                    resolved_entry,
+                    "kana_kanji_front_english_back",
+                    "dictionary",
+                    tags,
+                    notes,
+                    englishOverride=meaning,
+                ),
+            )
+        return {
+            "added": bool(added),
+            "method": "dictionary",
+            "dictionary_entry_id": resolved_entry.get("entry_id", ""),
+        }
+
+    if destination == "global":
+        added = AddGlobalCard(
+            connection,
+            {
+                "kanji": word,
+                "kana": reading,
+                "english": meaning,
+                "notes": notes,
+                "kanji_masu": "",
+                "kana_masu": "",
+                "kanji_te": "",
+                "kana_te": "",
+                "kanji_past": "",
+                "kana_past": "",
+                "kanji_negative": "",
+                "kana_negative": "",
+                "image_files": [],
+                "video_files": [],
+                "tags": tags,
+                "dictionary_entry_id": "",
+                "dictionary_headword": word,
+                "dictionary_reading": reading,
+                "dictionary_gloss": meaning,
+                "dictionary_pos": part_of_speech,
+                "dictionary_pos_tags": [],
+                "verb_type": "",
+            },
+        )
+    else:
+        added = AddCard(
+            connection,
+            deck_id,
+            {
+                "kanji": word,
+                "kana": reading,
+                "english": meaning,
+                "notes": notes,
+                "source_text": "reading_comprehension",
+                "schema_key": "kana_kanji_front_english_back",
+                "media_type": "none",
+                "media_files": [],
+                "tags": tags,
+                "dictionary_entry_id": "",
+                "dictionary_headword": word,
+                "dictionary_reading": reading,
+                "dictionary_gloss": meaning,
+                "dictionary_pos": part_of_speech,
+                "dictionary_pos_tags": [],
+                "verb_type": "",
+                "word_form": "dictionary",
+            },
+        )
+
+    return {
+        "added": bool(added),
+        "method": "manual",
+        "dictionary_entry_id": "",
+    }
+
+
 def action_get_counts(payload: Dict[str, Any]) -> Dict[str, Any]:
     deck_id = normalize_text(payload.get("deck_id", ""))
     return {
@@ -1688,6 +2097,8 @@ ACTIONS = {
     "export_deck": action_export_deck,
     "get_revision_cards": action_get_revision_cards,
     "get_practice_round": action_get_practice_round,
+    "generate_reading_comprehension": action_generate_reading_comprehension,
+    "add_reading_new_word": action_add_reading_new_word,
     "get_counts": action_get_counts,
 }
 
