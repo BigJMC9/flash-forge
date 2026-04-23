@@ -39,6 +39,7 @@ function relationClassName(
 
 function buildEntryTags(entry: DictionaryEntry): string[] {
   const tags = [
+    ...(entry.pos_tags ?? []),
     ...(entry.pos_labels ?? []),
     ...(entry.is_verb && entry.verb_type_label ? [entry.verb_type_label] : []),
     ...((entry.senses ?? []).flatMap((sense) => sense.notes ?? [])),

@@ -1,9 +1,23 @@
 import csv
 import io
+import json
 import sqlite3
 from typing import Tuple
 
 from AnkiDeckBuilder.DatabaseService import AddCard
+
+
+def ParseDictionaryPosTags(value: str) -> list[str]:
+    text = (value or "").strip()
+    if not text:
+        return []
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError:
+        parsed = None
+    if isinstance(parsed, list):
+        return [str(item).strip().lower() for item in parsed if str(item).strip()]
+    return [tag.strip().lower() for tag in text.split(",") if tag.strip()]
 
 
 def ImportCsvCards(connection: sqlite3.Connection, deckId: str, file) -> Tuple[int, int]:
@@ -30,6 +44,7 @@ def ImportCsvCards(connection: sqlite3.Connection, deckId: str, file) -> Tuple[i
                 "dictionary_reading": row.get("dictionary_reading", ""),
                 "dictionary_gloss": row.get("dictionary_gloss", ""),
                 "dictionary_pos": row.get("dictionary_pos", ""),
+                "dictionary_pos_tags": ParseDictionaryPosTags(row.get("dictionary_pos_tags", "")),
                 "verb_type": row.get("verb_type", ""),
                 "word_form": row.get("word_form", "dictionary"),
             },

@@ -28,6 +28,23 @@ VerbTypeLabels = {
     "kuru": "Kuru irregular",
     "other": "Non-verb",
 }
+PosLabelTagMappings = [
+    ("adjective (keiyoushi)", "adj-i"),
+    ("adjectival nouns or quasi-adjectives", "adj-na"),
+    ("adverb (fukushi)", "adv"),
+    ("noun or participle which takes the aux. verb suru", "vs-n"),
+    ("suru verb", "vs"),
+    ("kuru verb", "vk"),
+    ("ichidan verb", "v1"),
+    ("godan verb", "v5"),
+    ("transitive verb", "vt"),
+    ("intransitive verb", "vi"),
+    ("pre-noun adjectival", "pren"),
+    ("interjection", "int"),
+    ("particle", "prt"),
+    ("expressions (phrases, clauses, etc.)", "exp"),
+    ("noun", "n"),
+]
 
 TrailingKanaPattern = re.compile(r"[ぁ-ゖァ-ヺー]+$")
 ContainsKanjiPattern = re.compile(r"[一-龯]")
@@ -387,6 +404,18 @@ def DetectAdjectiveType(posLabels: List[str]) -> str:
     return "other"
 
 
+def BuildDictionaryPosTags(posLabels: List[str]) -> List[str]:
+    tags: List[str] = []
+    for rawLabel in posLabels or []:
+        normalizedLabel = str(rawLabel or "").strip().lower()
+        if not normalizedLabel:
+            continue
+        for needle, tag in PosLabelTagMappings:
+            if needle in normalizedLabel and tag not in tags:
+                tags.append(tag)
+    return tags
+
+
 def ChooseDictionaryLikeForm(forms: List[str]) -> str:
     if not forms:
         return ""
@@ -434,6 +463,7 @@ def NormalizeDictionaryEntry(rawEntry: Any) -> Dict[str, Any]:
         "senses": senses,
         "examples": examples,
         "pos_labels": posLabels,
+        "pos_tags": BuildDictionaryPosTags(posLabels),
         "kanji_forms": kanjiForms,
         "kana_forms": kanaForms,
         "verb_type": verbType,
@@ -1017,6 +1047,7 @@ def BuildCardFromDictionaryEntry(
         "dictionary_reading": entry.get("reading", ""),
         "dictionary_gloss": entry.get("english", ""),
         "dictionary_pos": ", ".join(entry.get("pos_labels", [])),
+        "dictionary_pos_tags": entry.get("pos_tags", BuildDictionaryPosTags(entry.get("pos_labels", []))),
         "verb_type": entry.get("verb_type", ""),
         "word_form": appliedWordForm,
     }
@@ -1075,6 +1106,7 @@ def BuildGlobalCardFromDictionaryEntry(
         "dictionary_reading": entry.get("reading", ""),
         "dictionary_gloss": entry.get("english", ""),
         "dictionary_pos": ", ".join(entry.get("pos_labels", [])),
+        "dictionary_pos_tags": entry.get("pos_tags", BuildDictionaryPosTags(entry.get("pos_labels", []))),
         "verb_type": entry.get("verb_type", ""),
     }
 

@@ -75,6 +75,7 @@ export interface DictionaryEntry {
   english: string;
   glosses: string[];
   pos_labels: string[];
+  pos_tags?: string[];
   senses?: {
     sense_index: number;
     glosses: string[];
@@ -135,6 +136,7 @@ export interface GlobalCardRow {
   dictionary_reading: string;
   dictionary_gloss: string;
   dictionary_pos: string;
+  dictionary_pos_tags: string[];
   verb_type: string;
   image_files: string[];
   video_files: string[];
@@ -157,6 +159,7 @@ export interface DeckCardRow {
   dictionary_reading: string;
   dictionary_gloss: string;
   dictionary_pos: string;
+  dictionary_pos_tags: string[];
   verb_type: string;
   media_type: string;
   media_files: string[];

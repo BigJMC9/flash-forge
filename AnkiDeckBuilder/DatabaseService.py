@@ -21,6 +21,7 @@ CardColumnDefinitions = {
     "dictionary_reading": "TEXT NOT NULL DEFAULT ''",
     "dictionary_gloss": "TEXT NOT NULL DEFAULT ''",
     "dictionary_pos": "TEXT NOT NULL DEFAULT ''",
+    "dictionary_pos_tags": "TEXT NOT NULL DEFAULT '[]'",
     "verb_type": "TEXT NOT NULL DEFAULT ''",
     "word_form": "TEXT NOT NULL DEFAULT 'dictionary'",
 }
@@ -45,6 +46,7 @@ GlobalCardColumnDefinitions = {
     "dictionary_reading": "TEXT NOT NULL DEFAULT ''",
     "dictionary_gloss": "TEXT NOT NULL DEFAULT ''",
     "dictionary_pos": "TEXT NOT NULL DEFAULT ''",
+    "dictionary_pos_tags": "TEXT NOT NULL DEFAULT '[]'",
     "verb_type": "TEXT NOT NULL DEFAULT ''",
     "unique_key": "TEXT NOT NULL DEFAULT ''",
     "created_at": "REAL NOT NULL DEFAULT 0",
@@ -107,6 +109,7 @@ def EnsureDatabaseSchema(connection: sqlite3.Connection) -> None:
             dictionary_reading TEXT NOT NULL DEFAULT '',
             dictionary_gloss TEXT NOT NULL DEFAULT '',
             dictionary_pos TEXT NOT NULL DEFAULT '',
+            dictionary_pos_tags TEXT NOT NULL DEFAULT '[]',
             verb_type TEXT NOT NULL DEFAULT '',
             word_form TEXT NOT NULL DEFAULT 'dictionary',
             unique_key TEXT NOT NULL,
@@ -141,6 +144,7 @@ def EnsureDatabaseSchema(connection: sqlite3.Connection) -> None:
             dictionary_reading TEXT NOT NULL DEFAULT '',
             dictionary_gloss TEXT NOT NULL DEFAULT '',
             dictionary_pos TEXT NOT NULL DEFAULT '',
+            dictionary_pos_tags TEXT NOT NULL DEFAULT '[]',
             verb_type TEXT NOT NULL DEFAULT '',
             unique_key TEXT NOT NULL,
             created_at REAL NOT NULL,
@@ -215,6 +219,16 @@ def NormalizeStringList(values: List[Any]) -> List[str]:
             continue
         normalizedItems.append(value)
     return normalizedItems
+
+
+def NormalizeDictionaryPosTags(values: List[Any]) -> List[str]:
+    normalizedTags: List[str] = []
+    for rawValue in values or []:
+        tag = str(rawValue or "").strip().lower()
+        if not tag or tag in normalizedTags:
+            continue
+        normalizedTags.append(tag)
+    return normalizedTags
 
 
 def BuildMediaTypeFromGlobalCard(imageFiles: List[str], videoFiles: List[str]) -> str:
@@ -373,6 +387,7 @@ def AddCard(connection: sqlite3.Connection, deckId: str, card: Dict[str, Any]) -
     dictionaryReading = (card.get("dictionary_reading") or "").strip()
     dictionaryGloss = (card.get("dictionary_gloss") or "").strip()
     dictionaryPos = (card.get("dictionary_pos") or "").strip()
+    dictionaryPosTags = NormalizeDictionaryPosTags(card.get("dictionary_pos_tags") or [])
     verbType = (card.get("verb_type") or "").strip()
     wordForm = (card.get("word_form") or "dictionary").strip() or "dictionary"
 
@@ -387,9 +402,9 @@ def AddCard(connection: sqlite3.Connection, deckId: str, card: Dict[str, Any]) -
                 id, deck_id, kanji, kana, english, notes, source_text, schema_key,
                 media_type, media_files_json, tags_json,
                 dictionary_entry_id, dictionary_headword, dictionary_reading,
-                dictionary_gloss, dictionary_pos, verb_type, word_form,
+                dictionary_gloss, dictionary_pos, dictionary_pos_tags, verb_type, word_form,
                 unique_key, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 str(uuid.uuid4()),
@@ -408,6 +423,7 @@ def AddCard(connection: sqlite3.Connection, deckId: str, card: Dict[str, Any]) -
                 dictionaryReading,
                 dictionaryGloss,
                 dictionaryPos,
+                json.dumps(dictionaryPosTags, ensure_ascii=False),
                 verbType,
                 wordForm,
                 uniqueKey,
@@ -464,6 +480,7 @@ def AddGlobalCard(connection: sqlite3.Connection, card: Dict[str, Any]) -> bool:
     dictionaryReading = (card.get("dictionary_reading") or "").strip()
     dictionaryGloss = (card.get("dictionary_gloss") or "").strip()
     dictionaryPos = (card.get("dictionary_pos") or "").strip()
+    dictionaryPosTags = NormalizeDictionaryPosTags(card.get("dictionary_pos_tags") or [])
     verbType = (card.get("verb_type") or "").strip()
 
     imageFiles = NormalizeStringList(card.get("image_files") or [])
@@ -480,9 +497,9 @@ def AddGlobalCard(connection: sqlite3.Connection, card: Dict[str, Any]) -> bool:
                 kanji_past, kana_past, kanji_negative, kana_negative,
                 image_files_json, video_files_json, tags_json,
                 dictionary_entry_id, dictionary_headword, dictionary_reading,
-                dictionary_gloss, dictionary_pos, verb_type,
+                dictionary_gloss, dictionary_pos, dictionary_pos_tags, verb_type,
                 unique_key, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 str(uuid.uuid4()),
@@ -506,6 +523,7 @@ def AddGlobalCard(connection: sqlite3.Connection, card: Dict[str, Any]) -> bool:
                 dictionaryReading,
                 dictionaryGloss,
                 dictionaryPos,
+                json.dumps(dictionaryPosTags, ensure_ascii=False),
                 verbType,
                 uniqueKey,
                 time.time(),
@@ -583,6 +601,10 @@ def MergeGlobalCard(connection: sqlite3.Connection, existingCard: sqlite3.Row, i
         ),
         "verb_type": MergeOptionalText(existingCard["verb_type"], incomingCard.get("verb_type", "")),
     }
+    mergedDictionaryPosTags = NormalizeDictionaryPosTags(
+        DecodeJsonStringList(existingCard["dictionary_pos_tags"])
+        + NormalizeDictionaryPosTags(incomingCard.get("dictionary_pos_tags") or [])
+    )
     mergedImageFiles = NormalizeStringList(
         DecodeJsonStringList(existingCard["image_files_json"]) + NormalizeStringList(incomingCard.get("image_files") or [])
     )
@@ -603,6 +625,8 @@ def MergeGlobalCard(connection: sqlite3.Connection, existingCard: sqlite3.Row, i
     if not hasChanges and mergedVideoFiles != DecodeJsonStringList(existingCard["video_files_json"]):
         hasChanges = True
     if not hasChanges and mergedTags != DecodeJsonStringList(existingCard["tags_json"]):
+        hasChanges = True
+    if not hasChanges and mergedDictionaryPosTags != DecodeJsonStringList(existingCard["dictionary_pos_tags"]):
         hasChanges = True
 
     if not hasChanges:
@@ -632,6 +656,7 @@ def MergeGlobalCard(connection: sqlite3.Connection, existingCard: sqlite3.Row, i
             dictionary_reading = ?,
             dictionary_gloss = ?,
             dictionary_pos = ?,
+            dictionary_pos_tags = ?,
             verb_type = ?
         WHERE id = ?
         """,
@@ -656,6 +681,7 @@ def MergeGlobalCard(connection: sqlite3.Connection, existingCard: sqlite3.Row, i
             mergedValues["dictionary_reading"],
             mergedValues["dictionary_gloss"],
             mergedValues["dictionary_pos"],
+            json.dumps(mergedDictionaryPosTags, ensure_ascii=False),
             mergedValues["verb_type"],
             existingCard["id"],
         ),
@@ -717,6 +743,7 @@ def BuildDeckCardPayloadFromGlobalCard(
         "dictionary_reading": (globalCard["dictionary_reading"] or "").strip(),
         "dictionary_gloss": (globalCard["dictionary_gloss"] or "").strip(),
         "dictionary_pos": (globalCard["dictionary_pos"] or "").strip(),
+        "dictionary_pos_tags": DecodeJsonStringList(globalCard["dictionary_pos_tags"]),
         "verb_type": (globalCard["verb_type"] or "").strip(),
         "word_form": appliedWordForm,
     }
@@ -773,6 +800,7 @@ def ImportDeckCardsToGlobal(connection: sqlite3.Connection, deckId: str) -> Tupl
             "dictionary_reading": (card["dictionary_reading"] or "").strip(),
             "dictionary_gloss": (card["dictionary_gloss"] or "").strip(),
             "dictionary_pos": (card["dictionary_pos"] or "").strip(),
+            "dictionary_pos_tags": DecodeJsonStringList(card["dictionary_pos_tags"]),
             "verb_type": (card["verb_type"] or "").strip(),
         }
 

@@ -67,6 +67,7 @@ from AnkiDeckBuilder.DatabaseService import (
 )
 from AnkiDeckBuilder.ExportService import ExportDeckPackage
 from AnkiDeckBuilder.JamdictService import (
+    BuildDictionaryPosTags,
     BuildCardFromDictionaryEntry,
     BuildConjugatedForms,
     BuildGlobalCardFromDictionaryEntry,
@@ -208,27 +209,22 @@ def get_card_list(card: Any, field_name: str) -> List[str]:
 def get_dictionary_pos_tags(card: Any) -> List[str]:
     tags = [tag.lower() for tag in get_card_list(card, "dictionary_pos_tags")]
     if tags:
-        return tags
+        return normalize_string_list(tags)
 
     # legacy fallback for old cards
-    pos_text = get_card_text(card, "dictionary_pos").lower()
-    fallback_tags: List[str] = []
+    pos_text = get_card_text(card, "dictionary_pos")
+    if not pos_text:
+        return []
+    return normalize_string_list(BuildDictionaryPosTags([pos_text]))
 
-    if "adj-i" in pos_text or "adjective (keiyoushi)" in pos_text:
-        fallback_tags.append("adj-i")
 
-    if "adj-na" in pos_text:
-        fallback_tags.append("adj-na")
-    elif "adjectival noun" in pos_text or "keiyodoshi" in pos_text:
-        fallback_tags.append("adj-na")
-
-    if "adverb (fukushi)" in pos_text:
-        fallback_tags.append("adv")
-
-    if "noun" in pos_text:
-        fallback_tags.append("n")
-
-    return normalize_string_list(fallback_tags)
+def classify_practice_adjective_tags(pos_tags: List[str]) -> str:
+    normalized_tags = [tag.lower() for tag in pos_tags]
+    if "adj-i" in normalized_tags:
+        return "i_adj"
+    if "adj-na" in normalized_tags and "adv" not in normalized_tags:
+        return "na_adj"
+    return ""
 
 
 def build_card_face_text(card: Any, field_names: List[str]) -> str:
@@ -292,27 +288,18 @@ def detect_practice_verb_type(card: Any) -> str:
 
 
 def detect_practice_adjective_bucket(card: Any) -> str:
-    pos_tags = get_dictionary_pos_tags(card)
-
-    if "adv" in pos_tags:
-        return ""
-
-    if "adj-na" in pos_tags:
-        return "na_adj"
-    if "adj-i" in pos_tags:
-        return "i_adj"
-
-    return ""  # everything else filtered
+    return classify_practice_adjective_tags(get_dictionary_pos_tags(card))
 
 def explain_adjective_filter(card: Any) -> str:
     pos_tags = get_dictionary_pos_tags(card)
+    adjective_bucket = classify_practice_adjective_tags(pos_tags)
 
-    if "adv" in pos_tags:
-        return f"filtered:mixed_adverb_entry ({', '.join(pos_tags)})"
-    if "adj-na" in pos_tags:
-        return "included:adj-na"
-    if "adj-i" in pos_tags:
+    if adjective_bucket == "i_adj":
         return "included:adj-i"
+    if adjective_bucket == "na_adj":
+        return "included:adj-na"
+    if "adj-na" in pos_tags and "adv" in pos_tags:
+        return f"filtered:mixed_adverb_entry ({', '.join(pos_tags)})"
     if pos_tags:
         return f"filtered:no_supported_adjective_tag ({', '.join(pos_tags)})"
     return "filtered:no_pos_tags"
@@ -637,6 +624,7 @@ def serialize_global_card(row: sqlite3.Row) -> Dict[str, Any]:
         "dictionary_reading": normalize_text(row["dictionary_reading"]),
         "dictionary_gloss": normalize_text(row["dictionary_gloss"]),
         "dictionary_pos": normalize_text(row["dictionary_pos"]),
+        "dictionary_pos_tags": DecodeJsonStringList(row["dictionary_pos_tags"]),
         "verb_type": normalize_text(row["verb_type"]),
         "image_files": image_files,
         "video_files": video_files,
@@ -663,6 +651,7 @@ def serialize_deck_card(card: sqlite3.Row, index: int) -> Dict[str, Any]:
         "dictionary_reading": normalize_text(card["dictionary_reading"]),
         "dictionary_gloss": normalize_text(card["dictionary_gloss"]),
         "dictionary_pos": normalize_text(card["dictionary_pos"]),
+        "dictionary_pos_tags": DecodeJsonStringList(card["dictionary_pos_tags"]),
         "verb_type": normalize_text(card["verb_type"]),
         "media_type": normalize_text(card["media_type"]) or "none",
         "media_files": DecodeJsonStringList(card["media_files_json"]),
@@ -934,6 +923,7 @@ def action_add_manual_card(payload: Dict[str, Any]) -> Dict[str, Any]:
     dictionary_reading = normalize_text(payload.get("dictionary_reading", "")) or kana
     dictionary_gloss = normalize_text(payload.get("dictionary_gloss", "")) or english
     dictionary_pos = normalize_text(payload.get("dictionary_pos", ""))
+    dictionary_pos_tags = [tag.lower() for tag in parse_tags(payload.get("dictionary_pos_tags", []))]
     verb_type = normalize_text(payload.get("verb_type", ""))
     if not verb_type and word_kind in {"ichidan", "godan", "suru", "suru_noun", "kuru"}:
         verb_type = word_kind
@@ -965,6 +955,7 @@ def action_add_manual_card(payload: Dict[str, Any]) -> Dict[str, Any]:
             "dictionary_reading": dictionary_reading,
             "dictionary_gloss": dictionary_gloss,
             "dictionary_pos": dictionary_pos,
+            "dictionary_pos_tags": dictionary_pos_tags,
             "verb_type": verb_type,
         }
         is_added = AddGlobalCard(connection, global_payload)
@@ -993,6 +984,7 @@ def action_add_manual_card(payload: Dict[str, Any]) -> Dict[str, Any]:
         "dictionary_reading": dictionary_reading,
         "dictionary_gloss": dictionary_gloss,
         "dictionary_pos": dictionary_pos,
+        "dictionary_pos_tags": dictionary_pos_tags,
         "verb_type": verb_type,
         "word_form": selected_word_form,
     }
