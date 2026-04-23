@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router';
 import { useApp } from '../contexts/AppContext';
 import { StatusBar } from './StatusBar';
+import { cn } from './ui/utils';
 import {
   BookOpen,
   Folder,
@@ -69,12 +70,12 @@ export function Layout({ children }: { children: ReactNode }) {
   const sidebarVisible = isAuthenticated;
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-background">
       <header className="border-b border-gray-200 bg-white">
-        <div className="px-6 py-4">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <div className="mx-auto max-w-[1400px] px-6 py-4">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div>
-              <h1 className="text-lg font-semibold">{appTitle}</h1>
+              <h1 className="text-base font-semibold text-gray-900">{appTitle}</h1>
               {isAuthenticated ? (
                 currentDeck ? (
                   <p className="mt-1 text-sm text-gray-600">
@@ -83,8 +84,8 @@ export function Layout({ children }: { children: ReactNode }) {
                   </p>
                 ) : (
                   <p className="mt-1 text-sm text-gray-600">
-                    Signed in as {currentUser?.username}. Select a deck to enable
-                    revision, practice, reading, and conversation flows.
+                    Signed in as {currentUser?.username}. Select a deck to start revision,
+                    practice, reading, and conversation.
                   </p>
                 )
               ) : (
@@ -94,18 +95,15 @@ export function Layout({ children }: { children: ReactNode }) {
               )}
             </div>
 
-            <div className="flex flex-wrap items-center gap-3">
+            <div className="flex flex-wrap items-center gap-2">
               {isAuthenticated ? (
                 <>
-                  <div className="rounded-full bg-gray-100 px-4 py-2 text-sm text-gray-700">
+                  <div className="rounded-full border border-gray-200 bg-gray-50 px-3 py-1.5 text-sm text-gray-700">
                     {currentUser?.username}
-                    {currentUser?.can_use_ai ? ' · AI enabled' : ' · AI disabled'}
-                    {currentUser?.can_use_ocr ? ' · OCR enabled' : ' · OCR disabled'}
+                    {currentUser?.can_use_ai ? ' · AI' : ' · No AI'}
+                    {currentUser?.can_use_ocr ? ' · OCR' : ' · No OCR'}
                   </div>
-                  <Link
-                    to="/account"
-                    className="inline-flex items-center gap-2 rounded-lg border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
-                  >
+                  <Link to="/account" className="app-btn-secondary">
                     <Settings className="h-4 w-4" />
                     Account
                     {pendingInvites.length > 0 && (
@@ -117,33 +115,24 @@ export function Layout({ children }: { children: ReactNode }) {
                   {isAdmin && (
                     <Link
                       to="/admin"
-                      className="inline-flex items-center gap-2 rounded-lg border border-amber-300 bg-amber-50 px-4 py-2 text-sm text-amber-900 hover:bg-amber-100"
+                      className="inline-flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-4 py-2.5 text-sm font-medium text-blue-700 transition-colors hover:bg-blue-100"
                     >
                       <Shield className="h-4 w-4" />
                       Admin
                     </Link>
                   )}
-                  <button
-                    onClick={() => void handleLogout()}
-                    className="inline-flex items-center gap-2 rounded-lg bg-gray-900 px-4 py-2 text-sm text-white hover:bg-black"
-                  >
+                  <button onClick={() => void handleLogout()} className="app-btn-secondary">
                     <LogOut className="h-4 w-4" />
                     Logout
                   </button>
                 </>
               ) : (
                 <>
-                  <Link
-                    to="/login"
-                    className="inline-flex items-center gap-2 rounded-lg border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
-                  >
+                  <Link to="/login" className="app-btn-secondary">
                     <LogIn className="h-4 w-4" />
                     Login
                   </Link>
-                  <Link
-                    to="/register"
-                    className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700"
-                  >
+                  <Link to="/register" className="app-btn-primary">
                     <UserPlus className="h-4 w-4" />
                     Register
                   </Link>
@@ -153,36 +142,32 @@ export function Layout({ children }: { children: ReactNode }) {
           </div>
 
           {isAuthenticated && (
-            <div className="mt-4 grid grid-cols-2 gap-4 text-sm sm:grid-cols-4">
-              <div className="text-center">
-                <div className="text-gray-600">Collections</div>
-                <div className="font-semibold">{dashboard.collection_count}</div>
-              </div>
-              <div className="text-center">
-                <div className="text-gray-600">Decks</div>
-                <div className="font-semibold">{dashboard.deck_count}</div>
-              </div>
-              <div className="text-center">
-                <div className="text-gray-600">Deck Cards</div>
-                <div className="font-semibold">{dashboard.card_count}</div>
-              </div>
-              <div className="text-center">
-                <div className="text-gray-600">Global Cards</div>
-                <div className="font-semibold">{dashboard.global_card_count}</div>
-              </div>
+            <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+              {[
+                { label: 'Collections', value: dashboard.collection_count },
+                { label: 'Decks', value: dashboard.deck_count },
+                { label: 'Deck Cards', value: dashboard.card_count },
+                { label: 'Global Cards', value: dashboard.global_card_count },
+              ].map((item) => (
+                <div
+                  key={item.label}
+                  className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2"
+                >
+                  <div className="text-xs text-gray-500">{item.label}</div>
+                  <div className="text-sm font-semibold text-gray-900">{item.value}</div>
+                </div>
+              ))}
             </div>
           )}
 
-          {isLoading && (
-            <div className="mt-3 text-sm text-blue-700">Loading workspace…</div>
-          )}
+          {isLoading && <p className="mt-3 text-sm text-gray-600">Loading workspace…</p>}
         </div>
       </header>
 
-      <div className={sidebarVisible ? 'flex' : ''}>
+      <div className={cn('mx-auto max-w-[1400px]', sidebarVisible ? 'flex' : '')}>
         {sidebarVisible && (
-          <nav className="min-h-[calc(100vh-89px)] w-64 border-r border-gray-200 bg-white">
-            <div className="space-y-1 p-4">
+          <aside className="min-h-[calc(100vh-89px)] w-64 border-r border-gray-200 bg-white">
+            <nav className="space-y-1 p-4">
               {navItems.map((item) => {
                 const Icon = item.icon;
                 const active = isRouteActive(location.pathname, item.path);
@@ -191,13 +176,9 @@ export function Layout({ children }: { children: ReactNode }) {
                   <Link
                     key={item.path}
                     to={item.path}
-                    className={`flex items-center gap-3 rounded-lg px-4 py-2 transition-colors ${
-                      active
-                        ? 'bg-blue-50 text-blue-700'
-                        : 'text-gray-700 hover:bg-gray-50'
-                    }`}
+                    className={cn('app-nav-link', active && 'app-nav-link-active')}
                   >
-                    <Icon className="h-5 w-5" />
+                    <Icon className="h-4 w-4" />
                     <span>{item.label}</span>
                   </Link>
                 );
@@ -205,69 +186,73 @@ export function Layout({ children }: { children: ReactNode }) {
 
               {currentDeck && (
                 <div className="mt-4 space-y-1 border-t border-gray-200 pt-4">
-                  <div className="mb-2 px-4 text-xs text-gray-500">Current Deck</div>
+                  <p className="mb-2 px-3 text-xs font-medium uppercase tracking-[0.14em] text-gray-500">
+                    Current Deck
+                  </p>
                   <Link
                     to={`/deck/${currentDeck.id}`}
-                    className={`flex items-center gap-3 rounded-lg px-4 py-2 transition-colors ${
-                      isRouteActive(location.pathname, `/deck/${currentDeck.id}`)
-                        ? 'bg-blue-50 text-blue-700'
-                        : 'text-gray-700 hover:bg-gray-50'
-                    }`}
+                    className={cn(
+                      'app-nav-link',
+                      isRouteActive(location.pathname, `/deck/${currentDeck.id}`) &&
+                        'app-nav-link-active',
+                    )}
                   >
-                    <Folder className="h-5 w-5" />
+                    <Folder className="h-4 w-4" />
                     <span>Deck Operations</span>
                   </Link>
                   <Link
                     to={`/revision/${currentDeck.id}`}
-                    className={`flex items-center gap-3 rounded-lg px-4 py-2 transition-colors ${
-                      isRouteActive(location.pathname, `/revision/${currentDeck.id}`)
-                        ? 'bg-blue-50 text-blue-700'
-                        : 'text-gray-700 hover:bg-gray-50'
-                    }`}
+                    className={cn(
+                      'app-nav-link',
+                      isRouteActive(location.pathname, `/revision/${currentDeck.id}`) &&
+                        'app-nav-link-active',
+                    )}
                   >
-                    <GraduationCap className="h-5 w-5" />
+                    <GraduationCap className="h-4 w-4" />
                     <span>Revision</span>
                   </Link>
                   <Link
                     to={`/practice/${currentDeck.id}`}
-                    className={`flex items-center gap-3 rounded-lg px-4 py-2 transition-colors ${
-                      isRouteActive(location.pathname, `/practice/${currentDeck.id}`)
-                        ? 'bg-blue-50 text-blue-700'
-                        : 'text-gray-700 hover:bg-gray-50'
-                    }`}
+                    className={cn(
+                      'app-nav-link',
+                      isRouteActive(location.pathname, `/practice/${currentDeck.id}`) &&
+                        'app-nav-link-active',
+                    )}
                   >
-                    <Gamepad2 className="h-5 w-5" />
+                    <Gamepad2 className="h-4 w-4" />
                     <span>Practice</span>
                   </Link>
                   <Link
                     to={`/reading/${currentDeck.id}`}
-                    className={`flex items-center gap-3 rounded-lg px-4 py-2 transition-colors ${
-                      isRouteActive(location.pathname, `/reading/${currentDeck.id}`)
-                        ? 'bg-blue-50 text-blue-700'
-                        : 'text-gray-700 hover:bg-gray-50'
-                    }`}
+                    className={cn(
+                      'app-nav-link',
+                      isRouteActive(location.pathname, `/reading/${currentDeck.id}`) &&
+                        'app-nav-link-active',
+                    )}
                   >
-                    <ScrollText className="h-5 w-5" />
+                    <ScrollText className="h-4 w-4" />
                     <span>Reading</span>
                   </Link>
                   <Link
                     to={`/conversation/${currentDeck.id}`}
-                    className={`flex items-center gap-3 rounded-lg px-4 py-2 transition-colors ${
-                      isRouteActive(location.pathname, `/conversation/${currentDeck.id}`)
-                        ? 'bg-blue-50 text-blue-700'
-                        : 'text-gray-700 hover:bg-gray-50'
-                    }`}
+                    className={cn(
+                      'app-nav-link',
+                      isRouteActive(location.pathname, `/conversation/${currentDeck.id}`) &&
+                        'app-nav-link-active',
+                    )}
                   >
-                    <MessageSquareText className="h-5 w-5" />
+                    <MessageSquareText className="h-4 w-4" />
                     <span>Conversation</span>
                   </Link>
                 </div>
               )}
-            </div>
-          </nav>
+            </nav>
+          </aside>
         )}
 
-        <main className={sidebarVisible ? 'flex-1 p-6' : 'p-6'}>{children}</main>
+        <main className={sidebarVisible ? 'flex-1 p-6' : 'mx-auto w-full max-w-[1400px] p-6'}>
+          {children}
+        </main>
       </div>
 
       <StatusBar />

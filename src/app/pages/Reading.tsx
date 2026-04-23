@@ -670,7 +670,7 @@ export function Reading() {
                   </div>
                 </div>
 
-                <div className="rounded-3xl border border-slate-200 bg-gradient-to-br from-sky-50 via-white to-indigo-50 p-8">
+                <div className="rounded-3xl border border-slate-200 bg-slate-50 p-8">
                   <div className="whitespace-pre-wrap text-lg leading-9 text-slate-900">
                     {session.passage}
                   </div>

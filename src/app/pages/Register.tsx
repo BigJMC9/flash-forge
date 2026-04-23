@@ -34,26 +34,37 @@ export function Register() {
   };
 
   return (
-    <div className="mx-auto flex min-h-[70vh] max-w-5xl items-center">
-      <div className="grid w-full gap-8 lg:grid-cols-[1.05fr_0.95fr]">
-        <div className="rounded-3xl border border-teal-200 bg-[linear-gradient(145deg,_#022c22,_#0f766e)] p-10 text-white">
-          <p className="text-sm uppercase tracking-[0.18em] text-teal-100">
-            Multi-User Workspace
-          </p>
-          <h2 className="mt-4 text-4xl font-semibold leading-tight">
-            Create a personal workspace, then branch into shared decks when you
-            need collaboration.
+    <div className="mx-auto flex min-h-[70vh] w-full max-w-5xl items-center">
+      <div className="grid w-full gap-4 lg:grid-cols-[0.95fr_1.05fr]">
+        <section className="app-panel-muted p-7 lg:p-8">
+          <p className="app-kicker">New Workspace</p>
+          <h2 className="mt-2 text-3xl font-semibold leading-tight text-gray-900">
+            Create your account and start building focused decks.
           </h2>
-          <p className="mt-5 max-w-xl text-sm text-teal-100">
-            New accounts can start with a seeded copy of the current template
-            decks and global pool, then diverge into their own private data.
+          <p className="mt-4 text-sm text-gray-600">
+            New users can begin with seeded template data and then branch into their
+            own deck and card workflows.
           </p>
-        </div>
+          <div className="mt-5 space-y-2 text-sm text-gray-700">
+            <p className="rounded-lg border border-gray-200 bg-white px-3 py-2">
+              Passwords must be at least 8 characters.
+            </p>
+            <p className="rounded-lg border border-gray-200 bg-white px-3 py-2">
+              Invitations and permissions can be managed later from Account.
+            </p>
+          </div>
+          <p className="mt-6 text-sm text-gray-600">
+            Already registered?{' '}
+            <Link to="/login" className="app-link font-medium">
+              Sign in
+            </Link>
+          </p>
+        </section>
 
-        <div className="rounded-3xl border border-gray-200 bg-white p-8">
-          <h3 className="text-2xl font-semibold">Register</h3>
+        <section className="app-panel p-7 lg:p-8">
+          <h3 className="text-2xl font-semibold text-gray-900">Register</h3>
           <p className="mt-2 text-sm text-gray-600">
-            Passwords must be at least 8 characters.
+            Set up your account credentials.
           </p>
 
           <form className="mt-6 space-y-4" onSubmit={handleSubmit}>
@@ -65,7 +76,7 @@ export function Register() {
                 type="text"
                 value={username}
                 onChange={(event) => setUsername(event.target.value)}
-                className="w-full rounded-xl border border-gray-300 px-4 py-3 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                className="app-input"
                 autoComplete="username"
               />
             </div>
@@ -78,7 +89,7 @@ export function Register() {
                 type="email"
                 value={email}
                 onChange={(event) => setEmail(event.target.value)}
-                className="w-full rounded-xl border border-gray-300 px-4 py-3 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                className="app-input"
                 autoComplete="email"
               />
             </div>
@@ -91,7 +102,7 @@ export function Register() {
                 type="password"
                 value={password}
                 onChange={(event) => setPassword(event.target.value)}
-                className="w-full rounded-xl border border-gray-300 px-4 py-3 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                className="app-input"
                 autoComplete="new-password"
               />
             </div>
@@ -104,10 +115,10 @@ export function Register() {
                 type="password"
                 value={confirmPassword}
                 onChange={(event) => setConfirmPassword(event.target.value)}
-                className={`w-full rounded-xl border px-4 py-3 focus:outline-none focus:ring-2 ${
+                className={`w-full rounded-lg border px-3 py-2.5 text-sm text-gray-900 transition-colors focus:outline-none focus:ring-2 ${
                   passwordsMatch
-                    ? 'border-gray-300 focus:border-blue-500 focus:ring-blue-500/20'
-                    : 'border-red-300 focus:border-red-500 focus:ring-red-500/20'
+                    ? 'border-gray-300 bg-white focus:border-blue-500 focus:ring-blue-500/20'
+                    : 'border-red-300 bg-red-50 focus:border-red-500 focus:ring-red-500/20'
                 }`}
                 autoComplete="new-password"
               />
@@ -116,7 +127,7 @@ export function Register() {
               )}
             </div>
 
-            <label className="flex items-start gap-3 rounded-xl border border-gray-200 px-4 py-3 text-sm text-gray-700">
+            <label className="flex items-start gap-3 rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-700">
               <input
                 type="checkbox"
                 checked={seedFromTemplate}
@@ -131,19 +142,12 @@ export function Register() {
             <button
               type="submit"
               disabled={isLoading || !passwordsMatch}
-              className="w-full rounded-xl bg-teal-700 px-5 py-3 text-sm font-medium text-white hover:bg-teal-800 disabled:cursor-not-allowed disabled:bg-teal-300"
+              className="app-btn-primary w-full justify-center disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {isLoading ? 'Creating account…' : 'Create Account'}
+              {isLoading ? 'Creating account...' : 'Create Account'}
             </button>
           </form>
-
-          <p className="mt-6 text-sm text-gray-600">
-            Already registered?{' '}
-            <Link to="/login" className="font-medium text-blue-600 hover:text-blue-700">
-              Sign in
-            </Link>
-          </p>
-        </div>
+        </section>
       </div>
     </div>
   );

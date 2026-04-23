@@ -1035,7 +1035,7 @@ export function Practice() {
               </div>
             )}
 
-            <div className="rounded-2xl border border-gray-200 bg-gradient-to-br from-sky-50 via-white to-emerald-50 p-4 mb-5">
+            <div className="rounded-2xl border border-gray-200 bg-slate-50 p-4 mb-5">
               <div className="text-sm font-medium text-gray-700 mb-1">
                 Current Mode
               </div>
@@ -1130,7 +1130,7 @@ export function Practice() {
 
             {gameType === 'bucket_sort' ? (
               <div className="grid xl:grid-cols-[1.05fr_0.95fr] gap-6">
-                <div className="rounded-2xl border border-slate-200 bg-gradient-to-br from-slate-900 via-slate-800 to-slate-700 p-5 text-white">
+                <div className="rounded-2xl border border-slate-200 bg-slate-900 p-5 text-white">
                   <div className="text-sm uppercase tracking-[0.2em] text-slate-300 mb-3">
                     Incoming Queue
                   </div>
@@ -1203,7 +1203,7 @@ export function Practice() {
                 </div>
               </div>
             ) : (
-              <div className="rounded-3xl border border-slate-200 bg-gradient-to-br from-sky-50 via-white to-indigo-50 p-8">
+              <div className="rounded-3xl border border-slate-200 bg-slate-50 p-8">
                 {currentCard && (
                   <>
                     <div className="text-center mb-8">
@@ -1389,7 +1389,7 @@ export function Practice() {
 
           <div className="grid xl:grid-cols-[1.15fr_0.85fr] gap-6">
             <div>
-              <div className="rounded-3xl border border-slate-200 bg-gradient-to-br from-slate-900 via-slate-800 to-slate-700 p-6 text-white mb-6">
+              <div className="rounded-3xl border border-slate-200 bg-slate-900 p-6 text-white mb-6">
                 <div className="text-sm uppercase tracking-[0.2em] text-slate-300 mb-3">
                   Passage
                 </div>

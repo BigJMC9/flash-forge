@@ -1,7 +1,7 @@
 import os
 from pathlib import Path
 
-AppTitle = "Truck-Kun's Education"
+AppTitle = "Flash Forge"
 
 AppDir = Path(os.getenv("ANKI_APP_DIR", "./anki_workspace")).expanduser().resolve()
 CollectionsDir = AppDir / "collections"

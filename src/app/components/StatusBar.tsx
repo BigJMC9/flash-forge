@@ -23,20 +23,27 @@ export function StatusBar() {
     error: XCircle,
   };
 
-  const colors = {
-    info: 'bg-blue-50 text-blue-800 border-blue-200',
-    success: 'bg-green-50 text-green-800 border-green-200',
-    warning: 'bg-yellow-50 text-yellow-800 border-yellow-200',
-    error: 'bg-red-50 text-red-800 border-red-200',
+  const tones = {
+    info: 'border-blue-200',
+    success: 'border-emerald-200',
+    warning: 'border-amber-200',
+    error: 'border-red-200',
+  };
+
+  const iconTones = {
+    info: 'text-blue-600',
+    success: 'text-emerald-600',
+    warning: 'text-amber-600',
+    error: 'text-red-600',
   };
 
   const Icon = icons[status.type];
 
   return (
     <div
-      className={`fixed bottom-4 right-4 px-4 py-3 rounded-lg border flex items-center gap-3 shadow-lg z-50 ${colors[status.type]}`}
+      className={`fixed bottom-4 right-4 z-50 flex max-w-sm items-center gap-3 rounded-lg border bg-white px-4 py-3 text-sm text-gray-800 shadow-lg ${tones[status.type]}`}
     >
-      <Icon className="w-5 h-5" />
+      <Icon className={`h-5 w-5 ${iconTones[status.type]}`} />
       <span>{status.message}</span>
     </div>
   );

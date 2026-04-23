@@ -651,7 +651,7 @@ def BackfillScopedTemplateColumns(connection: sqlite3.Connection) -> None:
                 (ownerUserId, row["id"]),
             )
 
-    for row in connection.execute("SELECT id, owner_user_id, kanji, kana FROM global_cards").fetchall():
+    for row in connection.execute("SELECT id, owner_user_id, kanji, kana, unique_key FROM global_cards").fetchall():
         ownerUserId = (row["owner_user_id"] or "").strip()
         uniqueKey = BuildGlobalCardUniqueKey(ownerUserId, row["kanji"], row["kana"])
         if uniqueKey != (row["unique_key"] or "").strip():
