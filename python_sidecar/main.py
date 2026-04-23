@@ -97,11 +97,48 @@ _CONNECTION: Optional[sqlite3.Connection] = None
 
 PRACTICE_BASE_CORRECT_POINTS = 10
 PRACTICE_INCORRECT_PENALTY_POINTS = 2
+DEFAULT_PRACTICE_ROUND_SIZE = 18
+DEFAULT_VERB_CONJUGATION_FORMS = ["te", "past", "negative"]
+DEFAULT_ADJECTIVE_CONJUGATION_FORMS = ["past", "negative"]
+PRACTICE_MODE_OPTIONS = [
+    {"key": "word_class_sort", "label": "Word Class Bucket Sort"},
+    {"key": "adjective_conjugation", "label": "Adjective Conjugation Builder"},
+    {"key": "verb_conjugation", "label": "Verb Conjugation Builder"},
+]
+PRACTICE_WORD_CLASS_BUCKET_ORDER = [
+    "verb",
+    "i_adj",
+    "na_adj",
+    "noun",
+    "adverb",
+    "particle",
+    "expression",
+    "conjunction",
+]
 PRACTICE_BUCKET_LABELS = {
+    "verb": "Verb",
     "ichidan": "Ichidan",
     "godan": "Godan",
     "i_adj": "I-adjective (い)",
     "na_adj": "Na-adjective (な)",
+    "noun": "Noun",
+    "adverb": "Adverb",
+    "particle": "Particle",
+    "expression": "Expression",
+    "conjunction": "Conjunction",
+}
+PRACTICE_VERB_FORM_LABELS = {
+    "masu": "Masu Form",
+    "te": "Te Form",
+    "past": "Past Form (た)",
+    "negative": "Negative Form",
+    "potential": "Potential Form",
+    "passive": "Passive Form",
+    "causative": "Causative Form",
+}
+PRACTICE_ADJECTIVE_FORM_LABELS = {
+    "past": "Past Form",
+    "negative": "Negative Form",
 }
 GODAN_E_ROW_MAP = {
     "う": "え",
@@ -227,6 +264,90 @@ def classify_practice_adjective_tags(pos_tags: List[str]) -> str:
     return ""
 
 
+def normalize_practice_option_list(
+    raw_values: Any,
+    allowed_keys: List[str],
+    default_keys: List[str],
+) -> List[str]:
+    requested = normalize_string_list(raw_values if isinstance(raw_values, list) else [])
+    normalized = [key for key in allowed_keys if key in requested]
+    return normalized or list(default_keys)
+
+
+def normalize_practice_round_size(raw_value: Any) -> int:
+    try:
+        round_size = int(raw_value)
+    except (TypeError, ValueError):
+        round_size = DEFAULT_PRACTICE_ROUND_SIZE
+    return max(6, min(round_size, 40))
+
+
+def normalize_practice_options(mode: str, raw_options: Any) -> Dict[str, Any]:
+    options = raw_options if isinstance(raw_options, dict) else {}
+    normalized = {
+        "round_size": normalize_practice_round_size(options.get("round_size", DEFAULT_PRACTICE_ROUND_SIZE)),
+        "verb_forms": list(DEFAULT_VERB_CONJUGATION_FORMS),
+        "adjective_forms": list(DEFAULT_ADJECTIVE_CONJUGATION_FORMS),
+    }
+    if mode == "verb_conjugation":
+        normalized["verb_forms"] = normalize_practice_option_list(
+            options.get("verb_forms", DEFAULT_VERB_CONJUGATION_FORMS),
+            list(PRACTICE_VERB_FORM_LABELS.keys()),
+            DEFAULT_VERB_CONJUGATION_FORMS,
+        )
+    if mode == "adjective_conjugation":
+        normalized["adjective_forms"] = normalize_practice_option_list(
+            options.get("adjective_forms", DEFAULT_ADJECTIVE_CONJUGATION_FORMS),
+            list(PRACTICE_ADJECTIVE_FORM_LABELS.keys()),
+            DEFAULT_ADJECTIVE_CONJUGATION_FORMS,
+        )
+    return normalized
+
+
+def build_practice_expected_display(word: str, reading: str) -> str:
+    normalized_word = normalize_text(word)
+    normalized_reading = normalize_text(reading)
+    if normalized_word and normalized_reading and normalized_word != normalized_reading:
+        return f"{normalized_word} [{normalized_reading}]"
+    return normalized_word or normalized_reading
+
+
+def build_text_entry_round_row(
+    dedupe_key: str,
+    card: Any,
+    form_key: str,
+    form_label: str,
+    word: str,
+    reading: str,
+) -> Optional[Dict[str, Any]]:
+    prompt = build_practice_prompt(card)
+    if not prompt:
+        return None
+
+    expected_display = build_practice_expected_display(word, reading)
+    if not expected_display:
+        return None
+
+    accepted_answers: List[str] = []
+    for answer in [word, reading]:
+        normalized_answer = normalize_practice_answer(answer)
+        if normalized_answer and normalized_answer not in accepted_answers:
+            accepted_answers.append(normalized_answer)
+    if not accepted_answers:
+        return None
+
+    return {
+        "id": dedupe_key,
+        "prompt": prompt,
+        "hint": build_practice_hint(card),
+        "expected": expected_display,
+        "expected_display": expected_display,
+        "accepted_answers": accepted_answers,
+        "form_key": form_key,
+        "form_label": form_label,
+    }
+
+
 def build_card_face_text(card: Any, field_names: List[str]) -> str:
     values: List[str] = []
     for field_name in field_names:
@@ -284,6 +405,31 @@ def detect_practice_verb_type(card: Any) -> str:
         return "suru"
     if dictionary_reading.endswith("くる") or dictionary_headword.endswith("来る"):
         return "kuru"
+    return ""
+
+
+def detect_practice_word_class_bucket(card: Any) -> str:
+    pos_tags = get_dictionary_pos_tags(card)
+    normalized_tags = [tag.lower() for tag in pos_tags]
+
+    if "prt" in normalized_tags:
+        return "particle"
+    if "conj" in normalized_tags:
+        return "conjunction"
+    if "exp" in normalized_tags:
+        return "expression"
+
+    if detect_practice_verb_type(card):
+        return "verb"
+
+    adjective_bucket = classify_practice_adjective_tags(normalized_tags)
+    if adjective_bucket:
+        return adjective_bucket
+
+    if "adv" in normalized_tags:
+        return "adverb"
+    if "n" in normalized_tags:
+        return "noun"
     return ""
 
 
@@ -723,11 +869,7 @@ def action_bootstrap(_: Dict[str, Any]) -> Dict[str, Any]:
         "defaults": {
             "schema_key": "kana_kanji_front_english_back",
             "word_form": "dictionary",
-            "practice_modes": [
-                {"key": "verb_sort", "label": "Verb Sort (Ichidan vs Godan)"},
-                {"key": "adjective_sort", "label": "Adjective Sort (い vs な)"},
-                {"key": "te_form", "label": "Te Form Builder"},
-            ],
+            "practice_modes": PRACTICE_MODE_OPTIONS,
         },
     }
 
@@ -1301,123 +1443,207 @@ def action_get_revision_cards(payload: Dict[str, Any]) -> Dict[str, Any]:
     return {"deck_id": deck_id, "rows": rows}
 
 
-def build_practice_round_cards(deck_id: str, mode: str) -> List[Dict[str, Any]]:
-    if not deck_id:
-        return []
-
+def build_word_class_sort_rows(cards: List[Any]) -> Dict[str, Any]:
     rows: List[Dict[str, Any]] = []
     filtered_rows: List[Dict[str, Any]] = []
     seen_keys = set()
 
-    for card in GetDeckCards(get_connection(), deck_id):
-        if mode == "verb_sort":
-            bucket = detect_practice_verb_bucket(card)
-        elif mode == "adjective_sort":
-            bucket = detect_practice_adjective_bucket(card)
-            if not bucket:
-                filtered_rows.append(
-                    {
-                        "prompt": build_practice_prompt(card),
-                        "hint": build_practice_hint(card),
-                        "dictionary_pos": get_card_text(card, "dictionary_pos"),
-                        "dictionary_pos_tags": get_dictionary_pos_tags(card),
-                        "reason": explain_adjective_filter(card),
-                    }
-                )
-                continue
-        else:
-            verb_type = detect_practice_verb_type(card)
-            if not verb_type:
-                continue
-            base_word = get_card_text(card, "dictionary_headword") or get_card_text(card, "kanji")
-            base_reading = get_card_text(card, "dictionary_reading") or get_card_text(card, "kana")
-            if not base_reading:
-                continue
-            if not base_word:
-                base_word = base_reading
-
-            forms = build_extended_verb_forms(base_word, base_reading, verb_type)
-            expected_word = normalize_text(forms.get("te", {}).get("word", ""))
-            expected_reading = normalize_text(forms.get("te", {}).get("reading", ""))
-            if not expected_word and not expected_reading:
-                continue
-
-            accepted_answers: List[str] = []
-            for answer in [expected_word, expected_reading]:
-                normalized_answer = normalize_practice_answer(answer)
-                if normalized_answer and normalized_answer not in accepted_answers:
-                    accepted_answers.append(normalized_answer)
-            if not accepted_answers:
-                continue
-
-            dedupe_key = build_practice_dedupe_key(card, "te_form")
-            if dedupe_key in seen_keys:
-                continue
-            seen_keys.add(dedupe_key)
-
-            prompt = build_practice_prompt(card)
-            if not prompt:
-                continue
-
-            expected_display = expected_word
-            if expected_word and expected_reading and expected_word != expected_reading:
-                expected_display = f"{expected_word} [{expected_reading}]"
-            elif not expected_display:
-                expected_display = expected_reading
-
-            rows.append(
+    for card in cards:
+        bucket = detect_practice_word_class_bucket(card)
+        if not bucket:
+            filtered_rows.append(
                 {
-                    "id": dedupe_key,
-                    "prompt": prompt,
+                    "prompt": build_practice_prompt(card),
                     "hint": build_practice_hint(card),
-                    "expected": expected_display,
-                    "expected_display": expected_display,
-                    "accepted_answers": accepted_answers,
+                    "dictionary_pos": get_card_text(card, "dictionary_pos"),
+                    "dictionary_pos_tags": get_dictionary_pos_tags(card),
+                    "reason": "filtered:no_supported_word_class",
                 }
             )
             continue
 
-        if mode in {"verb_sort", "adjective_sort"}:
-            if not bucket:
-                explain_adjective_filter(card)
+        dedupe_key = build_practice_dedupe_key(card, bucket)
+        if dedupe_key in seen_keys:
+            continue
+        seen_keys.add(dedupe_key)
+
+        prompt = build_practice_prompt(card)
+        if not prompt:
+            continue
+        rows.append(
+            {
+                "id": dedupe_key,
+                "prompt": prompt,
+                "hint": build_practice_hint(card),
+                "expected": bucket,
+            }
+        )
+
+    return {"rows": rows, "filtered_rows": filtered_rows}
+
+
+def build_adjective_conjugation_rows(cards: List[Any], form_keys: List[str]) -> Dict[str, Any]:
+    rows: List[Dict[str, Any]] = []
+    filtered_rows: List[Dict[str, Any]] = []
+    seen_keys = set()
+
+    for card in cards:
+        adjective_bucket = detect_practice_adjective_bucket(card)
+        if not adjective_bucket:
+            filtered_rows.append(
+                {
+                    "prompt": build_practice_prompt(card),
+                    "hint": build_practice_hint(card),
+                    "dictionary_pos": get_card_text(card, "dictionary_pos"),
+                    "dictionary_pos_tags": get_dictionary_pos_tags(card),
+                    "reason": explain_adjective_filter(card),
+                }
+            )
+            continue
+
+        base_word = get_card_text(card, "dictionary_headword") or get_card_text(card, "kanji")
+        base_reading = get_card_text(card, "dictionary_reading") or get_card_text(card, "kana")
+        if not base_reading:
+            continue
+        if not base_word:
+            base_word = base_reading
+
+        forms = (
+            build_i_adjective_forms(base_word, base_reading)
+            if adjective_bucket == "i_adj"
+            else build_na_adjective_forms(base_word, base_reading)
+        )
+
+        base_key = build_practice_dedupe_key(card, f"adjective_conjugation:{adjective_bucket}")
+        for form_key in form_keys:
+            if form_key not in PRACTICE_ADJECTIVE_FORM_LABELS:
                 continue
-            dedupe_key = build_practice_dedupe_key(card, bucket)
+            dedupe_key = f"{base_key}:{form_key}"
             if dedupe_key in seen_keys:
                 continue
             seen_keys.add(dedupe_key)
 
-            prompt = build_practice_prompt(card)
-            if not prompt:
-                continue
-            rows.append(
+            form = forms.get(form_key, {})
+            row = build_text_entry_round_row(
+                dedupe_key,
+                card,
+                form_key,
+                PRACTICE_ADJECTIVE_FORM_LABELS[form_key],
+                form.get("word", ""),
+                form.get("reading", ""),
+            )
+            if row is not None:
+                rows.append(row)
+
+    return {"rows": rows, "filtered_rows": filtered_rows}
+
+
+def build_verb_conjugation_rows(cards: List[Any], form_keys: List[str]) -> Dict[str, Any]:
+    rows: List[Dict[str, Any]] = []
+    filtered_rows: List[Dict[str, Any]] = []
+    seen_keys = set()
+
+    for card in cards:
+        verb_type = detect_practice_verb_type(card)
+        if not verb_type:
+            filtered_rows.append(
                 {
-                    "id": dedupe_key,
-                    "prompt": prompt,
+                    "prompt": build_practice_prompt(card),
                     "hint": build_practice_hint(card),
-                    "expected": bucket,
+                    "dictionary_pos": get_card_text(card, "dictionary_pos"),
+                    "dictionary_pos_tags": get_dictionary_pos_tags(card),
+                    "reason": "filtered:no_supported_verb_type",
                 }
             )
+            continue
+
+        base_word = get_card_text(card, "dictionary_headword") or get_card_text(card, "kanji")
+        base_reading = get_card_text(card, "dictionary_reading") or get_card_text(card, "kana")
+        if not base_reading:
+            continue
+        if not base_word:
+            base_word = base_reading
+
+        forms = build_extended_verb_forms(base_word, base_reading, verb_type)
+        base_key = build_practice_dedupe_key(card, f"verb_conjugation:{verb_type}")
+        for form_key in form_keys:
+            if form_key not in PRACTICE_VERB_FORM_LABELS:
+                continue
+            dedupe_key = f"{base_key}:{form_key}"
+            if dedupe_key in seen_keys:
+                continue
+            seen_keys.add(dedupe_key)
+
+            form = forms.get(form_key, {})
+            row = build_text_entry_round_row(
+                dedupe_key,
+                card,
+                form_key,
+                PRACTICE_VERB_FORM_LABELS[form_key],
+                form.get("word", ""),
+                form.get("reading", ""),
+            )
+            if row is not None:
+                rows.append(row)
+
+    return {"rows": rows, "filtered_rows": filtered_rows}
+
+
+def build_practice_round_cards(deck_id: str, mode: str, options: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    if not deck_id:
+        return {
+            "rows": [],
+            "filtered_rows": [],
+            "game_type": "text_entry" if mode in {"adjective_conjugation", "verb_conjugation"} else "bucket_sort",
+            "bucket_order": list(PRACTICE_WORD_CLASS_BUCKET_ORDER) if mode == "word_class_sort" else [],
+            "options_used": normalize_practice_options(mode, options),
+        }
+
+    normalized_options = normalize_practice_options(mode, options)
+    cards = list(GetDeckCards(get_connection(), deck_id))
+
+    if mode == "adjective_conjugation":
+        result = build_adjective_conjugation_rows(cards, normalized_options["adjective_forms"])
+        game_type = "text_entry"
+        bucket_order: List[str] = []
+    elif mode == "verb_conjugation":
+        result = build_verb_conjugation_rows(cards, normalized_options["verb_forms"])
+        game_type = "text_entry"
+        bucket_order = []
+    else:
+        result = build_word_class_sort_rows(cards)
+        game_type = "bucket_sort"
+        bucket_order = list(PRACTICE_WORD_CLASS_BUCKET_ORDER)
+
+    rows = list(result["rows"])
     random.shuffle(rows)
+    round_size = normalized_options["round_size"]
     return {
-        "rows": rows,
-        "filtered_rows": filtered_rows,
+        "rows": rows[:round_size],
+        "filtered_rows": result["filtered_rows"],
+        "game_type": game_type,
+        "bucket_order": bucket_order,
+        "options_used": normalized_options,
     }
 
 
 def action_get_practice_round(payload: Dict[str, Any]) -> Dict[str, Any]:
     deck_id = normalize_text(payload.get("deck_id", ""))
-    mode = normalize_text(payload.get("mode", "verb_sort")) or "verb_sort"
+    mode = normalize_text(payload.get("mode", "word_class_sort")) or "word_class_sort"
     include_filtered = bool(payload.get("include_filtered", False))
 
-    if mode not in {"verb_sort", "adjective_sort", "te_form"}:
-        mode = "verb_sort"
+    if mode not in {option["key"] for option in PRACTICE_MODE_OPTIONS}:
+        mode = "word_class_sort"
 
-    result = build_practice_round_cards(deck_id, mode)
+    result = build_practice_round_cards(deck_id, mode, payload.get("options", {}))
 
-    response =  {
+    response = {
         "deck_id": deck_id,
         "mode": mode,
+        "game_type": result["game_type"],
         "rows": result["rows"],
+        "bucket_order": result["bucket_order"],
+        "options_used": result["options_used"],
         "scoring": {
             "base_correct_points": PRACTICE_BASE_CORRECT_POINTS,
             "incorrect_penalty_points": PRACTICE_INCORRECT_PENALTY_POINTS,

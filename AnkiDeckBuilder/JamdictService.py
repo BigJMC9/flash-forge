@@ -32,6 +32,7 @@ PosLabelTagMappings = [
     ("adjective (keiyoushi)", "adj-i"),
     ("adjectival nouns or quasi-adjectives", "adj-na"),
     ("adverb (fukushi)", "adv"),
+    ("conjunction", "conj"),
     ("noun or participle which takes the aux. verb suru", "vs-n"),
     ("suru verb", "vs"),
     ("kuru verb", "vk"),

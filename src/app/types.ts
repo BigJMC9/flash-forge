@@ -48,8 +48,15 @@ export interface DashboardSummary {
   rows: DashboardRow[];
 }
 
+export type PracticeModeKey =
+  | 'word_class_sort'
+  | 'adjective_conjugation'
+  | 'verb_conjugation';
+
+export type PracticeGameType = 'bucket_sort' | 'text_entry';
+
 export interface PracticeModeOption {
-  key: 'verb_sort' | 'adjective_sort' | 'te_form';
+  key: PracticeModeKey;
   label: string;
 }
 
@@ -182,6 +189,8 @@ export interface PracticeRoundCard {
   expected: string;
   expected_display?: string;
   accepted_answers?: string[];
+  form_key?: string;
+  form_label?: string;
 }
 
 export interface PracticeScoring {
@@ -190,19 +199,31 @@ export interface PracticeScoring {
   bucket_labels: Record<string, string>;
 }
 
+export interface PracticeRoundOptions {
+  round_size: number;
+  verb_forms: string[];
+  adjective_forms: string[];
+}
+
 export interface PracticeRoundResponse {
   deck_id: string;
-  mode: 'verb_sort' | 'adjective_sort' | 'te_form';
+  mode: PracticeModeKey;
+  game_type: PracticeGameType;
   rows: PracticeRoundCard[];
   scoring: PracticeScoring;
+  bucket_order?: string[];
+  options_used?: PracticeRoundOptions;
 }
 
 export interface PracticeAnswerRow {
-  mode: string;
+  mode: PracticeModeKey;
+  game_type: PracticeGameType;
   prompt: string;
   hint: string;
   expected: string;
+  expected_label: string;
   selected: string;
+  selected_label: string;
   correct: boolean;
   elapsed_seconds: number;
   delta_points: number;

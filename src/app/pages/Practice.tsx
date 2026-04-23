@@ -1,13 +1,66 @@
 import { useEffect, useMemo, useState } from 'react';
+import type { CSSProperties, DragEvent, FormEvent } from 'react';
 import { useParams } from 'react-router';
-import { Clock, Play, Square, Target, Trophy } from 'lucide-react';
+import { Clock, Play, SlidersHorizontal, Square, Target, Trophy } from 'lucide-react';
 import { useApp } from '../contexts/AppContext';
 import { callAction, errorMessage } from '../lib/backend';
-import {
+import type {
   PracticeAnswerRow,
+  PracticeGameType,
+  PracticeModeKey,
   PracticeRoundCard,
+  PracticeRoundResponse,
   PracticeScoring,
 } from '../types';
+
+const DEFAULT_SORT_QUEUE_SIZE = 3;
+const ROUND_SIZE_OPTIONS = [12, 18, 24, 32];
+const VERB_FORM_OPTIONS = [
+  { key: 'masu', label: 'Masu' },
+  { key: 'te', label: 'Te' },
+  { key: 'past', label: 'Past (た)' },
+  { key: 'negative', label: 'Negative' },
+  { key: 'potential', label: 'Potential' },
+  { key: 'passive', label: 'Passive' },
+  { key: 'causative', label: 'Causative' },
+];
+const ADJECTIVE_FORM_OPTIONS = [
+  { key: 'past', label: 'Past' },
+  { key: 'negative', label: 'Negative' },
+];
+const MODE_COPY: Record<
+  PracticeModeKey,
+  {
+    description: string;
+    instructions: string;
+    emptyMessage: string;
+  }
+> = {
+  word_class_sort: {
+    description:
+      'Drag incoming words into Verb, い-adjective, な-adjective, Noun, Adverb, Particle, Expression, or Conjunction buckets.',
+    instructions:
+      'Drag a card into the right bucket, or tap a card and then tap the target bucket.',
+    emptyMessage:
+      'No cards with supported word-class tags were found in this deck.',
+  },
+  adjective_conjugation: {
+    description:
+      'Build adjective forms from the dictionary stem. Past and negative prompts can be mixed into the same round.',
+    instructions:
+      'Type the requested adjective form. Kana and kanji answers are both accepted.',
+    emptyMessage:
+      'No adjective cards with usable conjugation data were found in this deck.',
+  },
+  verb_conjugation: {
+    description:
+      'Run a configurable conjugation drill across the verb forms you choose, like a custom game playlist.',
+    instructions:
+      'Type the requested verb form. Kana and kanji answers are both accepted.',
+    emptyMessage:
+      'No verb cards with usable conjugation data were found in this deck.',
+  },
+};
 
 function speedBonusForSeconds(elapsedSeconds: number): number {
   if (elapsedSeconds <= 2) return 6;
@@ -17,18 +70,61 @@ function speedBonusForSeconds(elapsedSeconds: number): number {
   return 0;
 }
 
+function toggleOption(values: string[], nextValue: string): string[] {
+  if (values.includes(nextValue)) {
+    const filtered = values.filter((value) => value !== nextValue);
+    return filtered.length > 0 ? filtered : values;
+  }
+  return [...values, nextValue];
+}
+
+function bucketTone(bucket: string): string {
+  switch (bucket) {
+    case 'verb':
+      return 'border-sky-200 bg-sky-50 text-sky-900';
+    case 'i_adj':
+      return 'border-indigo-200 bg-indigo-50 text-indigo-900';
+    case 'na_adj':
+      return 'border-violet-200 bg-violet-50 text-violet-900';
+    case 'noun':
+      return 'border-emerald-200 bg-emerald-50 text-emerald-900';
+    case 'adverb':
+      return 'border-amber-200 bg-amber-50 text-amber-900';
+    case 'particle':
+      return 'border-rose-200 bg-rose-50 text-rose-900';
+    case 'expression':
+      return 'border-cyan-200 bg-cyan-50 text-cyan-900';
+    case 'conjunction':
+      return 'border-fuchsia-200 bg-fuchsia-50 text-fuchsia-900';
+    default:
+      return 'border-gray-200 bg-gray-50 text-gray-900';
+  }
+}
+
+function stackCardStyle(index: number): CSSProperties {
+  const topOffset = index * 34;
+  const scale = 1 - index * 0.04;
+  const rotation = index % 2 === 0 ? -1.2 : 1.2;
+  const opacity = Math.max(0.45, 1 - index * 0.18);
+  return {
+    transform: `translateY(${topOffset}px) scale(${scale}) rotate(${rotation}deg)`,
+    opacity,
+    zIndex: DEFAULT_SORT_QUEUE_SIZE - index,
+  };
+}
+
 export function Practice() {
   const { deckId = '' } = useParams<{ deckId: string }>();
   const { decks, practiceModes, setCurrentDeck, setStatus } = useApp();
 
-  const [mode, setMode] = useState<'verb_sort' | 'adjective_sort' | 'te_form'>(
-    'verb_sort',
-  );
+  const [mode, setMode] = useState<PracticeModeKey>('word_class_sort');
+  const [gameType, setGameType] = useState<PracticeGameType>('bucket_sort');
   const [isActive, setIsActive] = useState(false);
   const [cards, setCards] = useState<PracticeRoundCard[]>([]);
-  const [currentIndex, setCurrentIndex] = useState(0);
+  const [remainingCards, setRemainingCards] = useState<PracticeRoundCard[]>([]);
+  const [bucketOrder, setBucketOrder] = useState<string[]>([]);
   const [roundStartedAt, setRoundStartedAt] = useState(0);
-  const [questionStartedAt, setQuestionStartedAt] = useState(0);
+  const [cardShownAt, setCardShownAt] = useState<Record<string, number>>({});
   const [score, setScore] = useState(0);
   const [correctCount, setCorrectCount] = useState(0);
   const [incorrectCount, setIncorrectCount] = useState(0);
@@ -37,20 +133,42 @@ export function Practice() {
   const [lastSpeedBonus, setLastSpeedBonus] = useState(0);
   const [lastResultMessage, setLastResultMessage] = useState('');
   const [answers, setAnswers] = useState<PracticeAnswerRow[]>([]);
-  const [teInput, setTeInput] = useState('');
+  const [answerInput, setAnswerInput] = useState('');
+  const [selectedCardId, setSelectedCardId] = useState('');
+  const [draggedCardId, setDraggedCardId] = useState('');
+  const [roundSize, setRoundSize] = useState(18);
+  const [verbForms, setVerbForms] = useState<string[]>([
+    'te',
+    'past',
+    'negative',
+  ]);
+  const [adjectiveForms, setAdjectiveForms] = useState<string[]>([
+    'past',
+    'negative',
+  ]);
   const [scoring, setScoring] = useState<PracticeScoring>({
     base_correct_points: 10,
     incorrect_penalty_points: 2,
     bucket_labels: {
-      ichidan: 'Ichidan',
-      godan: 'Godan',
+      verb: 'Verb',
       i_adj: 'I-adjective (い)',
       na_adj: 'Na-adjective (な)',
+      noun: 'Noun',
+      adverb: 'Adverb',
+      particle: 'Particle',
+      expression: 'Expression',
+      conjunction: 'Conjunction',
     },
   });
 
   const deck = decks.find((item) => item.id === deckId) ?? null;
-  const currentCard = cards[currentIndex] ?? null;
+  const currentCard = remainingCards[0] ?? null;
+  const visibleSortCards = remainingCards.slice(0, DEFAULT_SORT_QUEUE_SIZE);
+  const selectedSortCard =
+    visibleSortCards.find((card) => card.id === selectedCardId) ??
+    visibleSortCards[0] ??
+    null;
+  const modeCopy = MODE_COPY[mode];
 
   const accuracy =
     correctCount + incorrectCount === 0
@@ -67,21 +185,27 @@ export function Practice() {
           ).toFixed(2),
         );
 
-  const summaryRows = useMemo(
-    () =>
-      answers.map((answer) => ({
-        ...answer,
-        expectedLabel:
-          answer.mode === 'te_form'
-            ? answer.expected
-            : scoring.bucket_labels[answer.expected] ?? answer.expected,
-        selectedLabel:
-          answer.mode === 'te_form'
-            ? answer.selected
-            : scoring.bucket_labels[answer.selected] ?? answer.selected,
-      })),
-    [answers, scoring.bucket_labels],
-  );
+  const answerSummary = useMemo(() => answers, [answers]);
+
+  const resetSession = () => {
+    setIsActive(false);
+    setCards([]);
+    setRemainingCards([]);
+    setBucketOrder([]);
+    setRoundStartedAt(0);
+    setCardShownAt({});
+    setScore(0);
+    setCorrectCount(0);
+    setIncorrectCount(0);
+    setStreak(0);
+    setBestStreak(0);
+    setLastSpeedBonus(0);
+    setLastResultMessage('');
+    setAnswers([]);
+    setAnswerInput('');
+    setSelectedCardId('');
+    setDraggedCardId('');
+  };
 
   const completeRound = (
     finalScore = score,
@@ -90,7 +214,9 @@ export function Practice() {
     finalBestStreak = bestStreak,
   ) => {
     setIsActive(false);
-    setTeInput('');
+    setAnswerInput('');
+    setSelectedCardId('');
+    setDraggedCardId('');
     setLastResultMessage('Round complete.');
     setStatus({
       type: 'success',
@@ -104,33 +230,32 @@ export function Practice() {
     }
 
     try {
-      const response = await callAction<{
-        rows: PracticeRoundCard[];
-        scoring: PracticeScoring;
-      }>('get_practice_round', {
+      const response = await callAction<PracticeRoundResponse>('get_practice_round', {
         deck_id: deckId,
         mode,
+        options: {
+          round_size: roundSize,
+          verb_forms: verbForms,
+          adjective_forms: adjectiveForms,
+        },
       });
 
       if (!response.rows?.length) {
         setStatus({
           type: 'warning',
-          message:
-            mode === 'verb_sort'
-              ? 'No Ichidan or Godan verb cards were found in this deck.'
-              : mode === 'adjective_sort'
-                ? 'No adjective cards were found in this deck.'
-                : 'No verb cards with usable て-form data were found in this deck.',
+          message: modeCopy.emptyMessage,
         });
         return;
       }
 
       const nowSeconds = Date.now() / 1000;
       setCards(response.rows);
+      setRemainingCards(response.rows);
+      setBucketOrder(response.bucket_order ?? []);
+      setGameType(response.game_type);
       setScoring(response.scoring);
-      setCurrentIndex(0);
       setRoundStartedAt(nowSeconds);
-      setQuestionStartedAt(nowSeconds);
+      setCardShownAt({});
       setScore(0);
       setCorrectCount(0);
       setIncorrectCount(0);
@@ -139,11 +264,13 @@ export function Practice() {
       setLastSpeedBonus(0);
       setLastResultMessage('');
       setAnswers([]);
-      setTeInput('');
+      setAnswerInput('');
+      setSelectedCardId(response.rows[0]?.id ?? '');
+      setDraggedCardId('');
       setIsActive(true);
       setStatus({
         type: 'success',
-        message: `Started ${mode} with ${response.rows.length} card(s).`,
+        message: `Started ${practiceModes.find((option) => option.key === mode)?.label ?? mode} with ${response.rows.length} prompt(s).`,
       });
     } catch (error) {
       setStatus({
@@ -153,14 +280,66 @@ export function Practice() {
     }
   };
 
-  const answerBucketRound = (selectedBucket: string) => {
-    if (!isActive || !currentCard) {
+  useEffect(() => {
+    if (deckId) {
+      setCurrentDeck(deckId);
+    }
+  }, [deckId, setCurrentDeck]);
+
+  useEffect(() => {
+    const availableModes = practiceModes.map((option) => option.key);
+    if (availableModes.includes(mode)) {
+      return;
+    }
+    setMode((availableModes[0] ?? 'word_class_sort') as PracticeModeKey);
+  }, [mode, practiceModes]);
+
+  useEffect(() => {
+    if (!isActive) {
       return;
     }
 
-    const elapsedSeconds = Math.max(0, Date.now() / 1000 - questionStartedAt);
+    const visibleIds =
+      gameType === 'bucket_sort'
+        ? remainingCards.slice(0, DEFAULT_SORT_QUEUE_SIZE).map((card) => card.id)
+        : remainingCards[0]
+          ? [remainingCards[0].id]
+          : [];
+    if (visibleIds.length === 0) {
+      return;
+    }
+
+    const nowSeconds = Date.now() / 1000;
+    setCardShownAt((previous) => {
+      let changed = false;
+      const next = { ...previous };
+      for (const cardId of visibleIds) {
+        if (next[cardId]) {
+          continue;
+        }
+        next[cardId] = nowSeconds;
+        changed = true;
+      }
+      return changed ? next : previous;
+    });
+  }, [gameType, isActive, remainingCards]);
+
+  const resolveAnswer = ({
+    card,
+    selectedValue,
+    selectedLabel,
+    expectedLabel,
+    correct,
+  }: {
+    card: PracticeRoundCard;
+    selectedValue: string;
+    selectedLabel: string;
+    expectedLabel: string;
+    correct: boolean;
+  }) => {
+    const shownAt = cardShownAt[card.id] ?? Date.now() / 1000;
+    const elapsedSeconds = Math.max(0, Date.now() / 1000 - shownAt);
     const speedBonus = speedBonusForSeconds(elapsedSeconds);
-    const correct = selectedBucket === currentCard.expected;
     const nextCorrectCount = correct ? correctCount + 1 : correctCount;
     const nextIncorrectCount = correct ? incorrectCount : incorrectCount + 1;
     let deltaPoints = 0;
@@ -190,7 +369,7 @@ export function Practice() {
       setStreak(0);
       setLastSpeedBonus(0);
       setLastResultMessage(
-        `Incorrect. Expected ${scoring.bucket_labels[currentCard.expected] ?? currentCard.expected}. ${deltaPoints} points.`,
+        `Incorrect. Expected ${expectedLabel}. ${deltaPoints} points.`,
       );
     }
 
@@ -198,17 +377,28 @@ export function Practice() {
       ...previous,
       {
         mode,
-        prompt: currentCard.prompt,
-        hint: currentCard.hint,
-        expected: currentCard.expected,
-        selected: selectedBucket,
+        game_type: gameType,
+        prompt: card.prompt,
+        hint: card.hint,
+        expected: card.expected,
+        expected_label: expectedLabel,
+        selected: selectedValue,
+        selected_label: selectedLabel,
         correct,
         elapsed_seconds: Number(elapsedSeconds.toFixed(2)),
         delta_points: deltaPoints,
       },
     ]);
 
-    if (currentIndex + 1 >= cards.length) {
+    const nextRemainingCards = remainingCards.filter((row) => row.id !== card.id);
+    setRemainingCards(nextRemainingCards);
+    setCardShownAt((previous) => {
+      const next = { ...previous };
+      delete next[card.id];
+      return next;
+    });
+
+    if (nextRemainingCards.length === 0) {
       completeRound(
         nextScore,
         nextCorrectCount,
@@ -218,21 +408,51 @@ export function Practice() {
       return;
     }
 
-    setCurrentIndex((previous) => previous + 1);
-    setQuestionStartedAt(Date.now() / 1000);
+    setSelectedCardId(nextRemainingCards[0]?.id ?? '');
   };
 
-  const submitTeFormAnswer = () => {
+  const answerBucketRound = (bucket: string, forcedCardId?: string) => {
+    if (!isActive) {
+      return;
+    }
+
+    const targetCardId =
+      forcedCardId || draggedCardId || selectedCardId || visibleSortCards[0]?.id;
+    if (!targetCardId) {
+      return;
+    }
+
+    const targetCard = remainingCards.find((card) => card.id === targetCardId);
+    if (!targetCard) {
+      return;
+    }
+
+    setDraggedCardId('');
+    setSelectedCardId(targetCard.id);
+
+    const expectedLabel =
+      scoring.bucket_labels[targetCard.expected] ?? targetCard.expected;
+    const selectedLabel = scoring.bucket_labels[bucket] ?? bucket;
+    resolveAnswer({
+      card: targetCard,
+      selectedValue: bucket,
+      selectedLabel,
+      expectedLabel,
+      correct: bucket === targetCard.expected,
+    });
+  };
+
+  const submitTextEntryAnswer = () => {
     if (!isActive || !currentCard) {
       return;
     }
 
-    const submittedDisplay = teInput.trim();
+    const submittedDisplay = answerInput.trim();
     const submittedNormalized = submittedDisplay.replace(/\s+/g, '');
     if (!submittedNormalized) {
       setStatus({
         type: 'warning',
-        message: 'Type a て-form answer first.',
+        message: 'Type an answer first.',
       });
       return;
     }
@@ -243,84 +463,51 @@ export function Practice() {
     const expectedDisplay = String(
       currentCard.expected_display ?? currentCard.expected,
     );
-    const elapsedSeconds = Math.max(0, Date.now() / 1000 - questionStartedAt);
-    const speedBonus = speedBonusForSeconds(elapsedSeconds);
-    const correct = acceptedAnswers.includes(submittedNormalized);
-    const nextCorrectCount = correct ? correctCount + 1 : correctCount;
-    const nextIncorrectCount = correct ? incorrectCount : incorrectCount + 1;
-    let deltaPoints = 0;
-    let nextScore = score;
-    let nextStreak = 0;
-    let nextBestStreak = bestStreak;
+    const expectedLabel = currentCard.form_label
+      ? `${currentCard.form_label}: ${expectedDisplay}`
+      : expectedDisplay;
 
-    if (correct) {
-      nextStreak = streak + 1;
-      const streakBonus = Math.min((nextStreak - 1) * 2, 12);
-      deltaPoints = scoring.base_correct_points + speedBonus + streakBonus;
-      nextScore = score + deltaPoints;
-      nextBestStreak = Math.max(bestStreak, nextStreak);
-      setScore(nextScore);
-      setCorrectCount(nextCorrectCount);
-      setStreak(nextStreak);
-      setBestStreak(nextBestStreak);
-      setLastSpeedBonus(speedBonus);
-      setLastResultMessage(
-        `Correct. +${deltaPoints} (speed +${speedBonus}, streak ${nextStreak}).`,
-      );
-    } else {
-      deltaPoints = -scoring.incorrect_penalty_points;
-      nextScore = Math.max(0, score + deltaPoints);
-      setScore(nextScore);
-      setIncorrectCount(nextIncorrectCount);
-      setStreak(0);
-      setLastSpeedBonus(0);
-      setLastResultMessage(
-        `Incorrect. Expected ${expectedDisplay}. ${deltaPoints} points.`,
-      );
-    }
-
-    setAnswers((previous) => [
-      ...previous,
-      {
-        mode: 'te_form',
-        prompt: currentCard.prompt,
-        hint: currentCard.hint,
-        expected: expectedDisplay,
-        selected: submittedDisplay,
-        correct,
-        elapsed_seconds: Number(elapsedSeconds.toFixed(2)),
-        delta_points: deltaPoints,
-      },
-    ]);
-
-    if (currentIndex + 1 >= cards.length) {
-      completeRound(
-        nextScore,
-        nextCorrectCount,
-        nextIncorrectCount,
-        nextBestStreak,
-      );
-      return;
-    }
-
-    setCurrentIndex((previous) => previous + 1);
-    setQuestionStartedAt(Date.now() / 1000);
-    setTeInput('');
+    resolveAnswer({
+      card: currentCard,
+      selectedValue: submittedDisplay,
+      selectedLabel: submittedDisplay,
+      expectedLabel,
+      correct: acceptedAnswers.includes(submittedNormalized),
+    });
+    setAnswerInput('');
   };
 
-  useEffect(() => {
-    if (deckId) {
-      setCurrentDeck(deckId);
-    }
-  }, [deckId]);
+  const handleTextEntrySubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    submitTextEntryAnswer();
+  };
 
-  useEffect(() => {
-    const availableModes = practiceModes.map((option) => option.key);
-    if (availableModes.includes(mode)) {
-      return;
-    }
-    setMode((availableModes[0] ?? 'verb_sort') as typeof mode);
-  }, [mode, practiceModes]);
+  const handleCardDragStart = (
+    event: DragEvent<HTMLDivElement>,
+    cardId: string,
+  ) => {
+    setDraggedCardId(cardId);
+    setSelectedCardId(cardId);
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData('text/plain', cardId);
+  };
+
+  const handleBucketDrop = (
+    event: DragEvent<HTMLButtonElement>,
+    bucket: string,
+  ) => {
+    event.preventDefault();
+    const droppedCardId =
+      event.dataTransfer.getData('text/plain') || draggedCardId || selectedCardId;
+    answerBucketRound(bucket, droppedCardId);
+  };
+
+  const selectedVerbFormLabels = VERB_FORM_OPTIONS.filter((option) =>
+    verbForms.includes(option.key),
+  ).map((option) => option.label);
+  const selectedAdjectiveFormLabels = ADJECTIVE_FORM_OPTIONS.filter((option) =>
+    adjectiveForms.includes(option.key),
+  ).map((option) => option.label);
 
   if (!deck) {
     return (
@@ -333,48 +520,175 @@ export function Practice() {
   }
 
   return (
-    <div className="max-w-6xl mx-auto">
+    <div className="max-w-7xl mx-auto">
       <h2 className="text-2xl font-semibold mb-2">Practice: {deck.name}</h2>
-      <p className="text-gray-600 mb-6">Gamified review and speed drills</p>
+      <p className="text-gray-600 mb-6">
+        Custom drills for sorting, conjugation, and rapid recall
+      </p>
 
       {!isActive && answers.length === 0 && (
-        <div className="bg-white rounded-lg p-6 border border-gray-200 mb-6">
-          <h3 className="font-semibold mb-4">Select Practice Mode</h3>
-
-          <div className="grid md:grid-cols-3 gap-4 mb-6">
-            {practiceModes.map((option) => (
-              <button
-                key={option.key}
-                onClick={() => setMode(option.key)}
-                className={`p-6 rounded-lg border-2 transition-all text-left ${
-                  mode === option.key
-                    ? 'border-blue-500 bg-blue-50'
-                    : 'border-gray-200 hover:border-gray-300'
-                }`}
-              >
-                <div className="font-semibold mb-2">{option.label}</div>
-                <div className="text-sm text-gray-600">
-                  {option.key === 'verb_sort'
-                    ? 'Classify verbs as Ichidan or Godan.'
-                    : option.key === 'adjective_sort'
-                      ? 'Classify adjectives as い or な.'
-                      : 'Type the correct て-form.'}
-                </div>
-              </button>
-            ))}
+        <div className="grid xl:grid-cols-[1.15fr_0.85fr] gap-6 mb-6">
+          <div className="bg-white rounded-lg p-6 border border-gray-200">
+            <h3 className="font-semibold mb-4">Select Practice Mode</h3>
+            <div className="grid md:grid-cols-3 gap-4">
+              {practiceModes.map((option) => {
+                const active = mode === option.key;
+                return (
+                  <button
+                    key={option.key}
+                    onClick={() => setMode(option.key)}
+                    className={`rounded-2xl border-2 p-5 text-left transition-all ${
+                      active
+                        ? 'border-sky-500 bg-sky-50 shadow-sm'
+                        : 'border-gray-200 bg-white hover:border-gray-300'
+                    }`}
+                  >
+                    <div className="font-semibold mb-2">{option.label}</div>
+                    <div className="text-sm text-gray-600">
+                      {MODE_COPY[option.key].description}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
-          <button
-            onClick={() => void startRound()}
-            className="px-8 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2"
-          >
-            <Play className="w-5 h-5" />
-            Start Round
-          </button>
+          <div className="bg-white rounded-lg p-6 border border-gray-200">
+            <div className="flex items-center gap-2 mb-4">
+              <SlidersHorizontal className="w-5 h-5 text-sky-600" />
+              <h3 className="font-semibold">Custom Game Options</h3>
+            </div>
+
+            <div className="mb-5">
+              <div className="text-sm font-medium text-gray-700 mb-2">
+                Round Size
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {ROUND_SIZE_OPTIONS.map((size) => (
+                  <button
+                    key={size}
+                    onClick={() => setRoundSize(size)}
+                    className={`rounded-full px-4 py-2 text-sm font-medium transition-colors ${
+                      roundSize === size
+                        ? 'bg-sky-600 text-white'
+                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                    }`}
+                  >
+                    {size} prompts
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {mode === 'verb_conjugation' && (
+              <div className="mb-5">
+                <div className="text-sm font-medium text-gray-700 mb-2">
+                  Verb Forms
+                </div>
+                <div className="grid sm:grid-cols-2 gap-2">
+                  {VERB_FORM_OPTIONS.map((option) => {
+                    const checked = verbForms.includes(option.key);
+                    return (
+                      <button
+                        key={option.key}
+                        onClick={() =>
+                          setVerbForms((previous) =>
+                            toggleOption(previous, option.key),
+                          )
+                        }
+                        className={`rounded-xl border px-4 py-3 text-left transition-colors ${
+                          checked
+                            ? 'border-sky-500 bg-sky-50 text-sky-900'
+                            : 'border-gray-200 bg-white hover:border-gray-300'
+                        }`}
+                      >
+                        {option.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {mode === 'adjective_conjugation' && (
+              <div className="mb-5">
+                <div className="text-sm font-medium text-gray-700 mb-2">
+                  Adjective Forms
+                </div>
+                <div className="grid sm:grid-cols-2 gap-2">
+                  {ADJECTIVE_FORM_OPTIONS.map((option) => {
+                    const checked = adjectiveForms.includes(option.key);
+                    return (
+                      <button
+                        key={option.key}
+                        onClick={() =>
+                          setAdjectiveForms((previous) =>
+                            toggleOption(previous, option.key),
+                          )
+                        }
+                        className={`rounded-xl border px-4 py-3 text-left transition-colors ${
+                          checked
+                            ? 'border-sky-500 bg-sky-50 text-sky-900'
+                            : 'border-gray-200 bg-white hover:border-gray-300'
+                        }`}
+                      >
+                        {option.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {mode === 'word_class_sort' && (
+              <div className="mb-5 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                <div className="text-sm font-medium text-slate-700 mb-2">
+                  Bucket Set
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {[
+                    'Verb',
+                    'I-adjective',
+                    'Na-adjective',
+                    'Noun',
+                    'Adverb',
+                    'Particle',
+                    'Expression',
+                    'Conjunction',
+                  ].map((label) => (
+                    <span
+                      key={label}
+                      className="rounded-full bg-white px-3 py-1 text-xs font-medium text-slate-700 border border-slate-200"
+                    >
+                      {label}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="rounded-2xl border border-gray-200 bg-gradient-to-br from-sky-50 via-white to-emerald-50 p-4 mb-5">
+              <div className="text-sm font-medium text-gray-700 mb-1">
+                Current Mode
+              </div>
+              <div className="font-semibold text-gray-900 mb-2">
+                {practiceModes.find((option) => option.key === mode)?.label ?? mode}
+              </div>
+              <div className="text-sm text-gray-600">{modeCopy.instructions}</div>
+            </div>
+
+            <button
+              onClick={() => void startRound()}
+              className="w-full px-8 py-3 bg-sky-600 text-white rounded-lg hover:bg-sky-700 flex items-center justify-center gap-2"
+            >
+              <Play className="w-5 h-5" />
+              Start Round
+            </button>
+          </div>
         </div>
       )}
 
-      {isActive && currentCard && (
+      {isActive && (
         <>
           <div className="grid md:grid-cols-5 gap-4 mb-6">
             <div className="bg-white rounded-lg p-4 border border-gray-200 text-center">
@@ -407,55 +721,153 @@ export function Practice() {
             </div>
           </div>
 
-          <div className="bg-white rounded-lg p-8 border-2 border-gray-300 mb-6">
-            <div className="text-center mb-8">
-              <div className="text-sm text-gray-600 mb-4">
-                Question {currentIndex + 1} of {cards.length}
-              </div>
-              <div className="text-5xl mb-4">{currentCard.prompt}</div>
-              <div className="text-xl text-gray-600">{currentCard.hint}</div>
+          <div className="bg-white rounded-2xl p-6 border border-gray-200 mb-6">
+            <div className="flex flex-wrap items-center gap-2 mb-6">
+              <span className="rounded-full bg-slate-900 px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-white">
+                {practiceModes.find((option) => option.key === mode)?.label ?? mode}
+              </span>
+              <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
+                Prompt {answers.length + 1} / {cards.length}
+              </span>
+              <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
+                Round size {cards.length}
+              </span>
+              {mode === 'verb_conjugation' &&
+                selectedVerbFormLabels.map((label) => (
+                  <span
+                    key={label}
+                    className="rounded-full bg-sky-50 px-3 py-1 text-xs font-medium text-sky-700"
+                  >
+                    {label}
+                  </span>
+                ))}
+              {mode === 'adjective_conjugation' &&
+                selectedAdjectiveFormLabels.map((label) => (
+                  <span
+                    key={label}
+                    className="rounded-full bg-violet-50 px-3 py-1 text-xs font-medium text-violet-700"
+                  >
+                    {label}
+                  </span>
+                ))}
             </div>
 
-            {mode === 'te_form' ? (
-              <form
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  submitTeFormAnswer();
-                }}
-                className="max-w-md mx-auto"
-              >
-                <input
-                  type="text"
-                  value={teInput}
-                  onChange={(event) => setTeInput(event.target.value)}
-                  placeholder="Type the correct て-form"
-                  className="w-full px-6 py-3 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-center text-xl mb-4"
-                />
-                <button
-                  type="submit"
-                  className="w-full px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-                >
-                  Submit
-                </button>
-              </form>
+            {gameType === 'bucket_sort' ? (
+              <div className="grid xl:grid-cols-[1.05fr_0.95fr] gap-6">
+                <div className="rounded-2xl border border-slate-200 bg-gradient-to-br from-slate-900 via-slate-800 to-slate-700 p-5 text-white">
+                  <div className="text-sm uppercase tracking-[0.2em] text-slate-300 mb-3">
+                    Incoming Queue
+                  </div>
+                  <div className="relative h-[320px]">
+                    {visibleSortCards.map((card, index) => {
+                      const isSelected = selectedSortCard?.id === card.id;
+                      return (
+                        <div
+                          key={card.id}
+                          draggable
+                          onDragStart={(event) => handleCardDragStart(event, card.id)}
+                          onDragEnd={() => setDraggedCardId('')}
+                          onClick={() => setSelectedCardId(card.id)}
+                          className={`absolute inset-x-0 mx-auto max-w-xl rounded-3xl border px-6 py-5 shadow-xl transition-all duration-300 cursor-grab active:cursor-grabbing ${
+                            isSelected
+                              ? 'border-sky-300 bg-white text-slate-900 ring-4 ring-sky-400/40'
+                              : 'border-white/10 bg-white/90 text-slate-900'
+                          }`}
+                          style={stackCardStyle(index)}
+                        >
+                          <div className="flex items-center justify-between mb-3">
+                            <span className="rounded-full bg-slate-900 px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-white">
+                              {index === 0 ? 'Live' : 'On deck'}
+                            </span>
+                            <span className="text-xs font-medium text-slate-500">
+                              #{answers.length + index + 1}
+                            </span>
+                          </div>
+                          <div className="text-4xl font-semibold mb-3 leading-tight">
+                            {card.prompt}
+                          </div>
+                          <div className="text-base text-slate-600">
+                            {card.hint || 'No gloss'}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <div className="mt-4 text-sm text-slate-200">
+                    {modeCopy.instructions}
+                  </div>
+                </div>
+
+                <div>
+                  <div className="text-sm uppercase tracking-[0.2em] text-slate-500 mb-3">
+                    Drop Buckets
+                  </div>
+                  <div className="grid sm:grid-cols-2 gap-3">
+                    {bucketOrder.map((bucket) => (
+                      <button
+                        key={bucket}
+                        onClick={() => answerBucketRound(bucket)}
+                        onDragOver={(event) => event.preventDefault()}
+                        onDrop={(event) => handleBucketDrop(event, bucket)}
+                        className={`rounded-2xl border px-4 py-4 text-left transition-transform hover:-translate-y-0.5 ${bucketTone(
+                          bucket,
+                        )}`}
+                      >
+                        <div className="font-semibold mb-1">
+                          {scoring.bucket_labels[bucket] ?? bucket}
+                        </div>
+                        <div className="text-sm opacity-80">
+                          {selectedSortCard
+                            ? `Place ${selectedSortCard.prompt} here`
+                            : 'Waiting for the next card'}
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
             ) : (
-              <div className="grid grid-cols-2 gap-4 max-w-md mx-auto">
-                <button
-                  onClick={() =>
-                    answerBucketRound(mode === 'verb_sort' ? 'ichidan' : 'i_adj')
-                  }
-                  className="px-6 py-4 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-lg"
-                >
-                  {mode === 'verb_sort' ? 'Ichidan' : 'I-adjective'}
-                </button>
-                <button
-                  onClick={() =>
-                    answerBucketRound(mode === 'verb_sort' ? 'godan' : 'na_adj')
-                  }
-                  className="px-6 py-4 bg-green-600 text-white rounded-lg hover:bg-green-700 text-lg"
-                >
-                  {mode === 'verb_sort' ? 'Godan' : 'Na-adjective'}
-                </button>
+              <div className="rounded-3xl border border-slate-200 bg-gradient-to-br from-sky-50 via-white to-indigo-50 p-8">
+                {currentCard && (
+                  <>
+                    <div className="text-center mb-8">
+                      {currentCard.form_label && (
+                        <div className="inline-flex items-center rounded-full bg-slate-900 px-4 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-white mb-4">
+                          {currentCard.form_label}
+                        </div>
+                      )}
+                      <div className="text-5xl font-semibold text-slate-900 mb-4">
+                        {currentCard.prompt}
+                      </div>
+                      <div className="text-xl text-slate-600">
+                        {currentCard.hint || 'No gloss'}
+                      </div>
+                    </div>
+
+                    <form
+                      onSubmit={handleTextEntrySubmit}
+                      className="max-w-xl mx-auto"
+                    >
+                      <input
+                        type="text"
+                        value={answerInput}
+                        onChange={(event) => setAnswerInput(event.target.value)}
+                        placeholder={
+                          currentCard.form_label
+                            ? `Type the ${currentCard.form_label.toLowerCase()}`
+                            : 'Type the answer'
+                        }
+                        className="w-full rounded-2xl border-2 border-slate-200 bg-white px-6 py-4 text-center text-2xl text-slate-900 focus:outline-none focus:ring-2 focus:ring-sky-500"
+                      />
+                      <button
+                        type="submit"
+                        className="mt-4 w-full rounded-2xl bg-sky-600 px-6 py-4 text-lg font-semibold text-white hover:bg-sky-700"
+                      >
+                        Submit Answer
+                      </button>
+                    </form>
+                  </>
+                )}
               </div>
             )}
 
@@ -470,8 +882,10 @@ export function Practice() {
           <button
             onClick={() => {
               setIsActive(false);
+              setAnswerInput('');
+              setDraggedCardId('');
+              setSelectedCardId('');
               setLastResultMessage('Round stopped.');
-              setTeInput('');
             }}
             className="px-6 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 flex items-center gap-2"
           >
@@ -535,11 +949,14 @@ export function Practice() {
                 </tr>
               </thead>
               <tbody>
-                {summaryRows.map((row, index) => (
-                  <tr key={`${row.prompt}-${index}`} className="border-t border-gray-100">
+                {answerSummary.map((row, index) => (
+                  <tr
+                    key={`${row.prompt}-${index}`}
+                    className="border-t border-gray-100"
+                  >
                     <td className="px-4 py-3">{row.prompt}</td>
-                    <td className="px-4 py-3">{row.expectedLabel}</td>
-                    <td className="px-4 py-3">{row.selectedLabel}</td>
+                    <td className="px-4 py-3">{row.expected_label}</td>
+                    <td className="px-4 py-3">{row.selected_label}</td>
                     <td className="px-4 py-3">
                       {row.correct ? (
                         <span className="text-green-600">Correct</span>
@@ -547,7 +964,9 @@ export function Practice() {
                         <span className="text-red-600">Incorrect</span>
                       )}
                     </td>
-                    <td className="px-4 py-3">{row.elapsed_seconds.toFixed(2)}s</td>
+                    <td className="px-4 py-3">
+                      {row.elapsed_seconds.toFixed(2)}s
+                    </td>
                     <td className="px-4 py-3">
                       {row.delta_points >= 0
                         ? `+${row.delta_points}`
@@ -560,20 +979,8 @@ export function Practice() {
           </div>
 
           <button
-            onClick={() => {
-              setAnswers([]);
-              setCards([]);
-              setCurrentIndex(0);
-              setScore(0);
-              setCorrectCount(0);
-              setIncorrectCount(0);
-              setStreak(0);
-              setBestStreak(0);
-              setLastSpeedBonus(0);
-              setLastResultMessage('');
-              setRoundStartedAt(0);
-            }}
-            className="mt-6 px-8 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+            onClick={resetSession}
+            className="mt-6 px-8 py-3 bg-sky-600 text-white rounded-lg hover:bg-sky-700"
           >
             New Round
           </button>
