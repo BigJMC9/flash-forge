@@ -126,32 +126,17 @@ function toggleOption(values: string[], nextValue: string): string[] {
 }
 
 function bucketTone(bucket: string): string {
-  switch (bucket) {
-    case 'verb':
-      return 'border-sky-200 bg-sky-50 text-sky-900';
-    case 'ichidan':
-      return 'border-sky-200 bg-sky-50 text-sky-900';
-    case 'godan':
-      return 'border-emerald-200 bg-emerald-50 text-emerald-900';
-    case 'suru':
-      return 'border-rose-200 bg-rose-50 text-rose-900';
-    case 'i_adj':
-      return 'border-indigo-200 bg-indigo-50 text-indigo-900';
-    case 'na_adj':
-      return 'border-violet-200 bg-violet-50 text-violet-900';
-    case 'noun':
-      return 'border-emerald-200 bg-emerald-50 text-emerald-900';
-    case 'adverb':
-      return 'border-amber-200 bg-amber-50 text-amber-900';
-    case 'particle':
-      return 'border-rose-200 bg-rose-50 text-rose-900';
-    case 'expression':
-      return 'border-cyan-200 bg-cyan-50 text-cyan-900';
-    case 'conjunction':
-      return 'border-fuchsia-200 bg-fuchsia-50 text-fuchsia-900';
-    default:
-      return 'border-gray-200 bg-gray-50 text-gray-900';
-  }
+  return bucket === 'default'
+    ? 'border-gray-200 bg-gray-50 text-gray-900'
+    : 'border-gray-200 bg-white text-gray-900 hover:border-blue-200';
+}
+
+function optionButtonClass(active: boolean): string {
+  return active ? 'app-option app-option-active' : 'app-option';
+}
+
+function selectionCardClass(active: boolean): string {
+  return active ? 'app-select-card app-select-card-active' : 'app-select-card';
 }
 
 function stackCardStyle(index: number): CSSProperties {
@@ -757,11 +742,11 @@ export function Practice() {
 
   const readingScoreBadgeClass = readingResults
     ? readingResults.percent >= 85
-      ? 'bg-emerald-50 text-emerald-700'
+      ? 'app-badge-accent'
       : readingResults.percent >= 60
-        ? 'bg-amber-50 text-amber-700'
-        : 'bg-rose-50 text-rose-700'
-    : 'bg-slate-50 text-slate-700';
+        ? 'app-badge-muted'
+        : 'app-badge'
+    : 'app-badge-muted';
 
   if (!deck) {
     return (
@@ -774,15 +759,19 @@ export function Practice() {
   }
 
   return (
-    <div className="max-w-7xl mx-auto">
-      <h2 className="text-2xl font-semibold mb-2">Practice: {deck.name}</h2>
-      <p className="text-gray-600 mb-6">
-        Sort drills and conjugation builders for the current deck
-      </p>
+    <div className="app-page max-w-7xl">
+      <div className="app-page-header">
+        <div>
+          <h2 className="app-page-title">Practice: {deck.name}</h2>
+          <p className="app-page-description">
+            Sort drills and conjugation builders for the current deck.
+          </p>
+        </div>
+      </div>
 
       {!isActive && answers.length === 0 && !readingSession && (
         <div className="grid xl:grid-cols-[1.15fr_0.85fr] gap-6 mb-6">
-          <div className="bg-white rounded-lg p-6 border border-gray-200">
+          <div className="app-panel p-6">
             <h3 className="font-semibold mb-4">Select Practice Mode</h3>
             <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-4">
               {practiceModes.map((option) => {
@@ -791,11 +780,7 @@ export function Practice() {
                   <button
                     key={option.key}
                     onClick={() => setMode(option.key)}
-                    className={`rounded-2xl border-2 p-5 text-left transition-all ${
-                      active
-                        ? 'border-sky-500 bg-sky-50 shadow-sm'
-                        : 'border-gray-200 bg-white hover:border-gray-300'
-                    }`}
+                    className={selectionCardClass(active)}
                   >
                     <div className="font-semibold mb-2">{option.label}</div>
                     <div className="text-sm text-gray-600">
@@ -807,9 +792,9 @@ export function Practice() {
             </div>
           </div>
 
-          <div className="bg-white rounded-lg p-6 border border-gray-200">
+          <div className="app-panel p-6">
             <div className="flex items-center gap-2 mb-4">
-              <SlidersHorizontal className="w-5 h-5 text-sky-600" />
+              <SlidersHorizontal className="w-5 h-5 text-blue-700" />
               <h3 className="font-semibold">Custom Game Options</h3>
             </div>
 
@@ -823,11 +808,7 @@ export function Practice() {
                     <button
                       key={size}
                       onClick={() => setRoundSize(size)}
-                      className={`rounded-full px-4 py-2 text-sm font-medium transition-colors ${
-                        roundSize === size
-                          ? 'bg-sky-600 text-white'
-                          : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                      }`}
+                      className={optionButtonClass(roundSize === size)}
                     >
                       {size} prompts
                     </button>
@@ -838,7 +819,7 @@ export function Practice() {
 
             {mode === 'verb_sort' && (
               <div className="space-y-3 mb-5">
-                <label className="flex items-center justify-between gap-3 rounded-xl border border-gray-200 px-4 py-3">
+                <label className="flex items-center justify-between gap-3 rounded-lg border border-gray-200 bg-gray-50 px-4 py-3">
                   <span className="text-sm text-gray-700">
                     Only verbs ending in る
                   </span>
@@ -850,7 +831,7 @@ export function Practice() {
                     }
                   />
                 </label>
-                <label className="flex items-center justify-between gap-3 rounded-xl border border-gray-200 px-4 py-3">
+                <label className="flex items-center justify-between gap-3 rounded-lg border border-gray-200 bg-gray-50 px-4 py-3">
                   <span className="text-sm text-gray-700">
                     Include する verbs
                   </span>
@@ -862,7 +843,7 @@ export function Practice() {
                     }
                   />
                 </label>
-                <label className="flex items-center justify-between gap-3 rounded-xl border border-gray-200 px-4 py-3">
+                <label className="flex items-center justify-between gap-3 rounded-lg border border-gray-200 bg-gray-50 px-4 py-3">
                   <span className="text-sm text-gray-700">
                     Include noun + する compounds
                   </span>
@@ -880,7 +861,7 @@ export function Practice() {
 
             {mode === 'adjective_sort' && (
               <div className="space-y-3 mb-5">
-                <label className="flex items-center justify-between gap-3 rounded-xl border border-gray-200 px-4 py-3">
+                <label className="flex items-center justify-between gap-3 rounded-lg border border-gray-200 bg-gray-50 px-4 py-3">
                   <span className="text-sm text-gray-700">
                     Only words ending in い
                   </span>
@@ -911,11 +892,7 @@ export function Practice() {
                             toggleOption(previous, option.key),
                           )
                         }
-                        className={`rounded-xl border px-4 py-3 text-left transition-colors ${
-                          checked
-                            ? 'border-sky-500 bg-sky-50 text-sky-900'
-                            : 'border-gray-200 bg-white hover:border-gray-300'
-                        }`}
+                        className={selectionCardClass(checked)}
                       >
                         {option.label}
                       </button>
@@ -941,11 +918,7 @@ export function Practice() {
                             toggleOption(previous, option.key),
                           )
                         }
-                        className={`rounded-xl border px-4 py-3 text-left transition-colors ${
-                          checked
-                            ? 'border-sky-500 bg-sky-50 text-sky-900'
-                            : 'border-gray-200 bg-white hover:border-gray-300'
-                        }`}
+                        className={selectionCardClass(checked)}
                       >
                         {option.label}
                       </button>
@@ -966,11 +939,7 @@ export function Practice() {
                       <button
                         key={option.key}
                         onClick={() => setReadingLevel(option.key)}
-                        className={`rounded-full px-4 py-2 text-sm font-medium transition-colors ${
-                          readingLevel === option.key
-                            ? 'bg-sky-600 text-white'
-                            : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                        }`}
+                        className={optionButtonClass(readingLevel === option.key)}
                       >
                         {option.label}
                       </button>
@@ -987,11 +956,7 @@ export function Practice() {
                       <button
                         key={option.key}
                         onClick={() => setReadingSource(option.key)}
-                        className={`rounded-full px-4 py-2 text-sm font-medium transition-colors ${
-                          readingSource === option.key
-                            ? 'bg-sky-600 text-white'
-                            : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                        }`}
+                        className={optionButtonClass(readingSource === option.key)}
                       >
                         {option.label}
                       </button>
@@ -1008,7 +973,7 @@ export function Practice() {
                     value={readingTopic}
                     onChange={(event) => setReadingTopic(event.target.value)}
                     placeholder="commute, shopping, school, weather..."
-                    className="w-full rounded-xl border border-gray-300 px-4 py-3 focus:outline-none focus:ring-2 focus:ring-sky-500"
+                    className="app-input"
                   />
                 </div>
 
@@ -1021,11 +986,7 @@ export function Practice() {
                       <button
                         key={count}
                         onClick={() => setReadingQuestionCount(count)}
-                        className={`rounded-full px-4 py-2 text-sm font-medium transition-colors ${
-                          readingQuestionCount === count
-                            ? 'bg-sky-600 text-white'
-                            : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                        }`}
+                        className={optionButtonClass(readingQuestionCount === count)}
                       >
                         {count} questions
                       </button>
@@ -1035,7 +996,7 @@ export function Practice() {
               </div>
             )}
 
-            <div className="rounded-2xl border border-gray-200 bg-slate-50 p-4 mb-5">
+            <div className="app-panel-muted mb-5 p-4">
               <div className="text-sm font-medium text-gray-700 mb-1">
                 Current Mode
               </div>
@@ -1051,7 +1012,7 @@ export function Practice() {
                   ? void generateReading()
                   : void startRound()
               }
-              className="w-full px-8 py-3 bg-sky-600 text-white rounded-lg hover:bg-sky-700 flex items-center justify-center gap-2"
+              className="app-btn-primary w-full"
             >
               {mode === 'reading_comprehension' ? (
                 <BookOpenText className="w-5 h-5" />
@@ -1067,62 +1028,56 @@ export function Practice() {
       {isActive && (
         <>
           <div className="grid md:grid-cols-5 gap-4 mb-6">
-            <div className="bg-white rounded-lg p-4 border border-gray-200 text-center">
-              <Trophy className="w-5 h-5 text-yellow-500 mx-auto mb-2" />
+            <div className="app-panel p-4 text-center">
+              <Trophy className="mx-auto mb-2 h-5 w-5 text-blue-700" />
               <div className="text-2xl font-semibold">{score}</div>
               <div className="text-sm text-gray-600">Score</div>
             </div>
 
-            <div className="bg-white rounded-lg p-4 border border-gray-200 text-center">
-              <Target className="w-5 h-5 text-green-500 mx-auto mb-2" />
+            <div className="app-panel p-4 text-center">
+              <Target className="mx-auto mb-2 h-5 w-5 text-blue-700" />
               <div className="text-2xl font-semibold">{streak}</div>
               <div className="text-sm text-gray-600">Streak</div>
             </div>
 
-            <div className="bg-white rounded-lg p-4 border border-gray-200 text-center">
-              <Target className="w-5 h-5 text-blue-500 mx-auto mb-2" />
+            <div className="app-panel p-4 text-center">
+              <Target className="mx-auto mb-2 h-5 w-5 text-blue-700" />
               <div className="text-2xl font-semibold">{bestStreak}</div>
               <div className="text-sm text-gray-600">Best</div>
             </div>
 
-            <div className="bg-white rounded-lg p-4 border border-gray-200 text-center">
+            <div className="app-panel p-4 text-center">
               <div className="text-2xl font-semibold">{accuracy}%</div>
               <div className="text-sm text-gray-600">Accuracy</div>
             </div>
 
-            <div className="bg-white rounded-lg p-4 border border-gray-200 text-center">
-              <Clock className="w-5 h-5 text-gray-500 mx-auto mb-2" />
+            <div className="app-panel p-4 text-center">
+              <Clock className="mx-auto mb-2 h-5 w-5 text-gray-500" />
               <div className="text-2xl font-semibold">{averageTime}s</div>
               <div className="text-sm text-gray-600">Avg Time</div>
             </div>
           </div>
 
-          <div className="bg-white rounded-2xl p-6 border border-gray-200 mb-6">
+          <div className="app-panel p-6">
             <div className="flex flex-wrap items-center gap-2 mb-6">
-              <span className="rounded-full bg-slate-900 px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-white">
+              <span className="app-badge-accent uppercase tracking-[0.2em]">
                 {practiceModes.find((option) => option.key === mode)?.label ?? mode}
               </span>
-              <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
+              <span className="app-badge-muted">
                 Prompt {answers.length + 1} / {cards.length}
               </span>
-              <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
+              <span className="app-badge-muted">
                 Round size {cards.length}
               </span>
               {mode === 'verb_conjugation' &&
                 selectedVerbFormLabels.map((label) => (
-                  <span
-                    key={label}
-                    className="rounded-full bg-sky-50 px-3 py-1 text-xs font-medium text-sky-700"
-                  >
+                  <span key={label} className="app-badge-accent">
                     {label}
                   </span>
                 ))}
               {mode === 'adjective_conjugation' &&
                 selectedAdjectiveFormLabels.map((label) => (
-                  <span
-                    key={label}
-                    className="rounded-full bg-violet-50 px-3 py-1 text-xs font-medium text-violet-700"
-                  >
+                  <span key={label} className="app-badge-accent">
                     {label}
                   </span>
                 ))}
@@ -1130,8 +1085,8 @@ export function Practice() {
 
             {gameType === 'bucket_sort' ? (
               <div className="grid xl:grid-cols-[1.05fr_0.95fr] gap-6">
-                <div className="rounded-2xl border border-slate-200 bg-slate-900 p-5 text-white">
-                  <div className="text-sm uppercase tracking-[0.2em] text-slate-300 mb-3">
+                <div className="app-panel-muted p-5">
+                  <div className="text-sm uppercase tracking-[0.2em] text-slate-500 mb-3">
                     Incoming Queue
                   </div>
                   <div className="relative h-[320px]">
@@ -1144,15 +1099,15 @@ export function Practice() {
                           onDragStart={(event) => handleCardDragStart(event, card.id)}
                           onDragEnd={() => setDraggedCardId('')}
                           onClick={() => setSelectedCardId(card.id)}
-                          className={`absolute inset-x-0 mx-auto max-w-xl rounded-3xl border px-6 py-5 shadow-xl transition-all duration-300 cursor-grab active:cursor-grabbing ${
+                          className={`absolute inset-x-0 mx-auto max-w-xl rounded-xl border px-6 py-5 shadow-sm transition-all duration-300 cursor-grab active:cursor-grabbing ${
                             isSelected
-                              ? 'border-sky-300 bg-white text-slate-900 ring-4 ring-sky-400/40'
-                              : 'border-white/10 bg-white/90 text-slate-900'
+                              ? 'border-blue-200 bg-white text-slate-900 ring-2 ring-blue-200'
+                              : 'border-gray-200 bg-white text-slate-900'
                           }`}
                           style={stackCardStyle(index)}
                         >
                           <div className="flex items-center justify-between mb-3">
-                            <span className="rounded-full bg-slate-900 px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-white">
+                            <span className="app-badge-accent uppercase tracking-[0.2em]">
                               {index === 0 ? 'Live' : 'On deck'}
                             </span>
                             <span className="text-xs font-medium text-slate-500">
@@ -1169,7 +1124,7 @@ export function Practice() {
                       );
                     })}
                   </div>
-                  <div className="mt-4 text-sm text-slate-200">
+                  <div className="mt-4 text-sm text-gray-600">
                     {modeCopy.instructions}
                   </div>
                 </div>
@@ -1185,7 +1140,7 @@ export function Practice() {
                         onClick={() => answerBucketRound(bucket)}
                         onDragOver={(event) => event.preventDefault()}
                         onDrop={(event) => handleBucketDrop(event, bucket)}
-                        className={`rounded-2xl border px-4 py-4 text-left transition-transform hover:-translate-y-0.5 ${bucketTone(
+                        className={`rounded-xl border px-4 py-4 text-left transition-transform hover:-translate-y-0.5 ${bucketTone(
                           bucket,
                         )}`}
                       >
@@ -1203,12 +1158,12 @@ export function Practice() {
                 </div>
               </div>
             ) : (
-              <div className="rounded-3xl border border-slate-200 bg-slate-50 p-8">
+              <div className="app-panel-muted p-8">
                 {currentCard && (
                   <>
                     <div className="text-center mb-8">
                       {currentCard.form_label && (
-                        <div className="inline-flex items-center rounded-full bg-slate-900 px-4 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-white mb-4">
+                        <div className="app-badge-accent mb-4">
                           {currentCard.form_label}
                         </div>
                       )}
@@ -1233,11 +1188,11 @@ export function Practice() {
                             ? `Type the ${currentCard.form_label.toLowerCase()}`
                             : 'Type the answer'
                         }
-                        className="w-full rounded-2xl border-2 border-slate-200 bg-white px-6 py-4 text-center text-2xl text-slate-900 focus:outline-none focus:ring-2 focus:ring-sky-500"
+                        className="app-input w-full px-6 py-4 text-center text-2xl"
                       />
                       <button
                         type="submit"
-                        className="mt-4 w-full rounded-2xl bg-sky-600 px-6 py-4 text-lg font-semibold text-white hover:bg-sky-700"
+                        className="app-btn-primary mt-4 w-full py-4 text-lg"
                       >
                         Submit Answer
                       </button>
@@ -1263,7 +1218,7 @@ export function Practice() {
               setSelectedCardId('');
               setLastResultMessage('Round stopped.');
             }}
-            className="px-6 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 flex items-center gap-2"
+            className="app-btn-secondary"
           >
             <Square className="w-5 h-5" />
             Stop Round
@@ -1272,78 +1227,63 @@ export function Practice() {
       )}
 
       {!isActive && answers.length > 0 && (
-        <div className="bg-white rounded-lg p-6 border border-gray-200 mb-6">
+        <div className="app-panel p-6">
           <h3 className="text-xl font-semibold mb-4">Round Summary</h3>
 
           <div className="grid md:grid-cols-4 gap-4 mb-6">
-            <div className="text-center p-4 bg-blue-50 rounded-lg">
-              <div className="text-3xl font-semibold text-blue-600">{score}</div>
+            <div className="app-panel-muted p-4 text-center">
+              <div className="text-3xl font-semibold text-gray-900">{score}</div>
               <div className="text-sm text-gray-600">Score</div>
             </div>
-            <div className="text-center p-4 bg-green-50 rounded-lg">
-              <div className="text-3xl font-semibold text-green-600">
+            <div className="app-panel-muted p-4 text-center">
+              <div className="text-3xl font-semibold text-gray-900">
                 {accuracy}%
               </div>
               <div className="text-sm text-gray-600">Accuracy</div>
             </div>
-            <div className="text-center p-4 bg-purple-50 rounded-lg">
-              <div className="text-3xl font-semibold text-purple-600">
+            <div className="app-panel-muted p-4 text-center">
+              <div className="text-3xl font-semibold text-gray-900">
                 {bestStreak}
               </div>
               <div className="text-sm text-gray-600">Best Streak</div>
             </div>
-            <div className="text-center p-4 bg-orange-50 rounded-lg">
-              <div className="text-3xl font-semibold text-orange-600">
+            <div className="app-panel-muted p-4 text-center">
+              <div className="text-3xl font-semibold text-gray-900">
                 {averageTime}s
               </div>
               <div className="text-sm text-gray-600">Avg Time</div>
             </div>
           </div>
 
-          <div className="border border-gray-200 rounded-lg overflow-hidden">
+          <div className="app-table-wrap">
             <table className="w-full">
-              <thead className="bg-gray-50">
+              <thead className="app-table-head">
                 <tr>
-                  <th className="text-left px-4 py-3 text-sm text-gray-600">
-                    Prompt
-                  </th>
-                  <th className="text-left px-4 py-3 text-sm text-gray-600">
-                    Expected
-                  </th>
-                  <th className="text-left px-4 py-3 text-sm text-gray-600">
-                    Your Answer
-                  </th>
-                  <th className="text-left px-4 py-3 text-sm text-gray-600">
-                    Result
-                  </th>
-                  <th className="text-left px-4 py-3 text-sm text-gray-600">
-                    Time
-                  </th>
-                  <th className="text-left px-4 py-3 text-sm text-gray-600">
-                    Points
-                  </th>
+                  <th className="app-table-th">Prompt</th>
+                  <th className="app-table-th">Expected</th>
+                  <th className="app-table-th">Your Answer</th>
+                  <th className="app-table-th">Result</th>
+                  <th className="app-table-th">Time</th>
+                  <th className="app-table-th">Points</th>
                 </tr>
               </thead>
               <tbody>
                 {roundSummaryRows.map((row, index) => (
-                  <tr
-                    key={`${row.prompt}-${index}`}
-                    className="border-t border-gray-100"
-                  >
-                    <td className="px-4 py-3">{row.prompt}</td>
-                    <td className="px-4 py-3">{row.expected_label}</td>
-                    <td className="px-4 py-3">{row.selected_label}</td>
-                    <td className="px-4 py-3">
+                  <tr key={`${row.prompt}-${index}`} className="app-table-row">
+                    <td className="app-table-td">{row.prompt}</td>
+                    <td className="app-table-td">{row.expected_label}</td>
+                    <td className="app-table-td">{row.selected_label}</td>
+                    <td className="app-table-td">
                       {row.correct ? (
-                        <span className="text-green-600">Correct</span>
+                        <span className="text-blue-700">Correct</span>
                       ) : (
                         <span className="text-red-600">Incorrect</span>
                       )}
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="app-table-td">
                       {row.elapsed_seconds.toFixed(2)}s
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="app-table-td">
                       {row.delta_points >= 0
                         ? `+${row.delta_points}`
                         : row.delta_points}
@@ -1356,7 +1296,7 @@ export function Practice() {
 
           <button
             onClick={resetAllSessions}
-            className="mt-6 px-8 py-3 bg-sky-600 text-white rounded-lg hover:bg-sky-700"
+            className="app-btn-primary mt-6"
           >
             New Session
           </button>
@@ -1369,19 +1309,19 @@ export function Practice() {
       )}
 
       {readingSession && (
-        <div className="bg-white rounded-2xl p-6 border border-gray-200">
+        <div className="app-panel p-6">
           <div className="flex flex-wrap items-center gap-3 mb-6">
-            <span className="rounded-full bg-slate-900 px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-white">
+            <span className="app-badge-accent uppercase tracking-[0.2em]">
               Reading Comprehension
             </span>
-            <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
+            <span className="app-badge-muted">
               {readingLevel}
             </span>
-            <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
+            <span className="app-badge-muted">
               {readingSource === 'news_style' ? 'News Style' : 'Story'}
             </span>
             {readingSession.source_note && (
-              <span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-medium text-amber-700">
+              <span className="app-badge-accent">
                 {readingSession.source_note}
               </span>
             )}
@@ -1389,28 +1329,25 @@ export function Practice() {
 
           <div className="grid xl:grid-cols-[1.15fr_0.85fr] gap-6">
             <div>
-              <div className="rounded-3xl border border-slate-200 bg-slate-900 p-6 text-white mb-6">
-                <div className="text-sm uppercase tracking-[0.2em] text-slate-300 mb-3">
+              <div className="app-panel-muted mb-6 p-6">
+                <div className="text-sm uppercase tracking-[0.2em] text-slate-500 mb-3">
                   Passage
                 </div>
-                <h3 className="text-2xl font-semibold mb-4">
+                <h3 className="mb-4 text-2xl font-semibold text-slate-900">
                   {readingSession.title}
                 </h3>
-                <div className="whitespace-pre-wrap leading-8 text-lg text-slate-100">
+                <div className="whitespace-pre-wrap text-lg leading-8 text-slate-900">
                   {readingSession.passage}
                 </div>
               </div>
 
-              <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5">
+              <div className="app-panel-muted p-5">
                 <div className="text-sm uppercase tracking-[0.2em] text-slate-500 mb-4">
                   Quiz
                 </div>
                 <div className="space-y-5">
                   {readingSession.questions.map((question, index) => (
-                    <div
-                      key={question.id}
-                      className="rounded-2xl border border-white bg-white p-4 shadow-sm"
-                    >
+                    <div key={question.id} className="app-panel p-4 shadow-none">
                       <div className="font-semibold text-slate-900 mb-3">
                         {index + 1}. {question.question}
                       </div>
@@ -1427,11 +1364,7 @@ export function Practice() {
                                   [question.id]: choiceIndex,
                                 }))
                               }
-                              className={`w-full rounded-xl border px-4 py-3 text-left transition-colors ${
-                                checked
-                                  ? 'border-sky-500 bg-sky-50 text-sky-900'
-                                  : 'border-gray-200 bg-white hover:border-gray-300'
-                              }`}
+                              className={`w-full ${selectionCardClass(checked)}`}
                             >
                               {String.fromCharCode(65 + choiceIndex)}. {choice}
                             </button>
@@ -1445,7 +1378,7 @@ export function Practice() {
                 {!readingSubmitted ? (
                   <button
                     onClick={submitReadingQuiz}
-                    className="mt-5 w-full rounded-2xl bg-sky-600 px-6 py-4 text-lg font-semibold text-white hover:bg-sky-700"
+                    className="app-btn-primary mt-5 w-full py-4 text-lg"
                   >
                     Grade Quiz
                   </button>
@@ -1455,7 +1388,7 @@ export function Practice() {
                       setReadingSelections({});
                       setReadingSubmitted(false);
                     }}
-                    className="mt-5 w-full rounded-2xl border border-gray-300 px-6 py-4 text-lg font-semibold text-gray-800 hover:bg-gray-50"
+                    className="app-btn-secondary mt-5 w-full py-4 text-lg"
                   >
                     Retry Quiz
                   </button>
@@ -1464,15 +1397,13 @@ export function Practice() {
             </div>
 
             <div>
-              <div className="rounded-3xl border border-slate-200 bg-white p-5 mb-6">
+              <div className="app-panel-muted mb-6 p-5">
                 <div className="text-sm uppercase tracking-[0.2em] text-slate-500 mb-3">
                   Score
                 </div>
                 {readingResults ? (
                   <>
-                    <div
-                      className={`inline-flex rounded-full px-4 py-2 text-sm font-semibold ${readingScoreBadgeClass}`}
-                    >
+                    <div className={`${readingScoreBadgeClass} px-4 py-2 text-sm font-semibold`}>
                       {readingResults.correctAnswers}/{readingResults.total} correct
                       ({readingResults.percent}%)
                     </div>
@@ -1492,16 +1423,13 @@ export function Practice() {
               </div>
 
               {readingResults && readingResults.incorrectRows.length > 0 && (
-                <div className="rounded-3xl border border-rose-200 bg-rose-50 p-5 mb-6">
-                  <div className="text-sm uppercase tracking-[0.2em] text-rose-600 mb-3">
+                <div className="app-panel-muted mb-6 p-5">
+                  <div className="text-sm uppercase tracking-[0.2em] text-slate-500 mb-3">
                     Where You Missed
                   </div>
                   <div className="space-y-4">
                     {readingResults.incorrectRows.map((row) => (
-                      <div
-                        key={row.id}
-                        className="rounded-2xl border border-white bg-white p-4"
-                      >
+                      <div key={row.id} className="app-panel p-4 shadow-none">
                         <div className="font-semibold text-slate-900 mb-2">
                           {row.question}
                         </div>
@@ -1511,7 +1439,7 @@ export function Practice() {
                         <div className="text-sm text-slate-600 mb-2">
                           Correct answer: {row.correct_text}
                         </div>
-                        <div className="text-sm text-rose-700">
+                        <div className="text-sm text-gray-700">
                           {row.explanation}
                         </div>
                       </div>
@@ -1520,12 +1448,12 @@ export function Practice() {
                 </div>
               )}
 
-              <div className="rounded-3xl border border-emerald-200 bg-emerald-50 p-5">
-                <div className="text-sm uppercase tracking-[0.2em] text-emerald-700 mb-3">
+              <div className="app-panel-muted p-5">
+                <div className="text-sm uppercase tracking-[0.2em] text-slate-500 mb-3">
                   New Words
                 </div>
                 {readingSession.new_words.length === 0 ? (
-                  <div className="text-sm text-emerald-800">
+                  <div className="text-sm text-gray-600">
                     No explicit new-word list was returned for this passage.
                   </div>
                 ) : (
@@ -1533,10 +1461,7 @@ export function Practice() {
                     {readingSession.new_words.map((word, index) => {
                       const wordKey = `${word.word}-${index}`;
                       return (
-                        <div
-                          key={wordKey}
-                          className="rounded-2xl border border-white bg-white p-4"
-                        >
+                        <div key={wordKey} className="app-panel p-4 shadow-none">
                           <div className="font-semibold text-slate-900">
                             {word.word} [{word.reading}]
                           </div>
@@ -1555,7 +1480,7 @@ export function Practice() {
                               onClick={() =>
                                 void addReadingWord(wordKey, 'global', word)
                               }
-                              className="rounded-full bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700"
+                              className="app-btn-secondary"
                             >
                               Add to Global
                             </button>
@@ -1563,7 +1488,7 @@ export function Practice() {
                               onClick={() =>
                                 void addReadingWord(wordKey, 'deck', word)
                               }
-                              className="rounded-full bg-sky-600 px-4 py-2 text-sm font-medium text-white hover:bg-sky-700"
+                              className="app-btn-primary"
                             >
                               Add to Deck
                             </button>
@@ -1594,7 +1519,7 @@ export function Practice() {
 
           <button
             onClick={resetAllSessions}
-            className="mt-6 px-8 py-3 bg-sky-600 text-white rounded-lg hover:bg-sky-700"
+            className="app-btn-primary mt-6"
           >
             New Session
           </button>

@@ -29,9 +29,13 @@ const READING_SOURCE_OPTIONS = [
 
 function scenarioCardTone(active: boolean): string {
   if (active) {
-    return 'border-sky-500 bg-sky-50 shadow-sm';
+    return 'app-select-card app-select-card-active';
   }
-  return 'border-gray-200 bg-white hover:border-gray-300';
+  return 'app-select-card';
+}
+
+function optionButtonClass(active: boolean): string {
+  return active ? 'app-option app-option-active' : 'app-option';
 }
 
 export function Reading() {
@@ -104,11 +108,11 @@ export function Reading() {
 
   const readingScoreBadgeClass = readingResults
     ? readingResults.percent >= 85
-      ? 'bg-emerald-50 text-emerald-700'
+      ? 'app-badge-accent'
       : readingResults.percent >= 60
-        ? 'bg-amber-50 text-amber-700'
-        : 'bg-rose-50 text-rose-700'
-    : 'bg-slate-50 text-slate-700';
+        ? 'app-badge-muted'
+        : 'app-badge'
+    : 'app-badge-muted';
 
   const loadScenarios = async () => {
     if (!deckId) {
@@ -363,8 +367,8 @@ export function Reading() {
 
   if (!deck) {
     return (
-      <div className="max-w-4xl mx-auto">
-        <div className="bg-white rounded-lg p-8 border border-gray-200 text-center text-gray-500">
+      <div className="app-page max-w-4xl">
+        <div className="app-empty">
           Deck not found.
         </div>
       </div>
@@ -372,16 +376,20 @@ export function Reading() {
   }
 
   return (
-    <div className="max-w-7xl mx-auto">
-      <h2 className="text-2xl font-semibold mb-2">Reading: {deck.name}</h2>
-      <p className="text-gray-600 mb-6">
-        Cached reading topics, cached passages, and fresh quiz questions built
-        around this deck and the global pool.
-      </p>
+    <div className="app-page max-w-7xl">
+      <div className="app-page-header">
+        <div>
+          <h2 className="app-page-title">Reading: {deck.name}</h2>
+          <p className="app-page-description">
+            Cached reading topics, cached passages, and fresh quiz questions built
+            around this deck and the global pool.
+          </p>
+        </div>
+      </div>
 
       <div className="grid xl:grid-cols-[360px_minmax(0,1fr)] gap-6">
         <div className="space-y-6">
-          <div className="bg-white rounded-lg p-6 border border-gray-200">
+          <div className="app-panel p-6">
             <div className="flex items-center justify-between gap-3 mb-3">
               <div>
                 <h3 className="font-semibold">Scenario Pool</h3>
@@ -392,7 +400,7 @@ export function Reading() {
               <button
                 onClick={() => void generateSuggestedScenarios()}
                 disabled={isGeneratingScenarios}
-                className="inline-flex items-center gap-2 rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white hover:bg-sky-700 disabled:cursor-not-allowed disabled:bg-sky-300"
+                className="app-btn-primary"
               >
                 {isGeneratingScenarios ? (
                   <Loader2 className="w-4 h-4 animate-spin" />
@@ -403,13 +411,13 @@ export function Reading() {
               </button>
             </div>
             {recommendedReason && (
-              <div className="rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-800">
+              <div className="app-banner">
                 {shouldGenerateMore ? 'Suggestion:' : 'Cache status:'} {recommendedReason}
               </div>
             )}
           </div>
 
-          <div className="bg-white rounded-lg p-6 border border-gray-200">
+          <div className="app-panel p-6">
             <h3 className="font-semibold mb-4">Add Custom Situation / Topic</h3>
             <div className="space-y-4">
               <div>
@@ -421,7 +429,7 @@ export function Reading() {
                   value={customTitle}
                   onChange={(event) => setCustomTitle(event.target.value)}
                   placeholder="After-school shopping, morning commute, weather report..."
-                  className="w-full rounded-xl border border-gray-300 px-4 py-3 focus:outline-none focus:ring-2 focus:ring-sky-500"
+                  className="app-input"
                 />
               </div>
 
@@ -434,7 +442,7 @@ export function Reading() {
                   onChange={(event) => setCustomSummary(event.target.value)}
                   rows={3}
                   placeholder="Optional note for the reading situation."
-                  className="w-full rounded-xl border border-gray-300 px-4 py-3 focus:outline-none focus:ring-2 focus:ring-sky-500"
+                  className="app-input"
                 />
               </div>
 
@@ -447,11 +455,7 @@ export function Reading() {
                     <button
                       key={option.key}
                       onClick={() => setReadingLevel(option.key)}
-                      className={`rounded-full px-4 py-2 text-sm font-medium transition-colors ${
-                        readingLevel === option.key
-                          ? 'bg-sky-600 text-white'
-                          : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                      }`}
+                      className={optionButtonClass(readingLevel === option.key)}
                     >
                       {option.label}
                     </button>
@@ -468,11 +472,7 @@ export function Reading() {
                     <button
                       key={option.key}
                       onClick={() => setReadingSource(option.key)}
-                      className={`rounded-full px-4 py-2 text-sm font-medium transition-colors ${
-                        readingSource === option.key
-                          ? 'bg-sky-600 text-white'
-                          : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                      }`}
+                      className={optionButtonClass(readingSource === option.key)}
                     >
                       {option.label}
                     </button>
@@ -489,7 +489,7 @@ export function Reading() {
                   value={readingTopic}
                   onChange={(event) => setReadingTopic(event.target.value)}
                   placeholder="commute, shopping, school, weather..."
-                  className="w-full rounded-xl border border-gray-300 px-4 py-3 focus:outline-none focus:ring-2 focus:ring-sky-500"
+                  className="app-input"
                 />
               </div>
 
@@ -502,11 +502,7 @@ export function Reading() {
                     <button
                       key={count}
                       onClick={() => setReadingQuestionCount(count)}
-                      className={`rounded-full px-4 py-2 text-sm font-medium transition-colors ${
-                        readingQuestionCount === count
-                          ? 'bg-sky-600 text-white'
-                          : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                      }`}
+                      className={optionButtonClass(readingQuestionCount === count)}
                     >
                       {count} questions
                     </button>
@@ -517,7 +513,7 @@ export function Reading() {
               <button
                 onClick={() => void createScenario()}
                 disabled={isCreatingScenario}
-                className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-sky-200 bg-sky-50 px-4 py-3 font-medium text-sky-800 hover:bg-sky-100 disabled:cursor-not-allowed disabled:opacity-70"
+                className="app-btn-secondary w-full"
               >
                 {isCreatingScenario ? (
                   <Loader2 className="w-4 h-4 animate-spin" />
@@ -529,7 +525,7 @@ export function Reading() {
             </div>
           </div>
 
-          <div className="bg-white rounded-lg p-4 border border-gray-200">
+          <div className="app-panel p-4">
             <div className="flex items-center justify-between mb-3">
               <h3 className="font-semibold">Cached Scenarios</h3>
               {isLoadingScenarios && <Loader2 className="w-4 h-4 animate-spin" />}
@@ -545,9 +541,7 @@ export function Reading() {
                   <button
                     key={scenario.id}
                     onClick={() => setSelectedScenarioId(scenario.id)}
-                    className={`w-full rounded-2xl border-2 p-4 text-left transition-all ${scenarioCardTone(
-                      scenario.id === selectedScenarioId,
-                    )}`}
+                    className={`w-full ${scenarioCardTone(scenario.id === selectedScenarioId)}`}
                   >
                     <div className="font-semibold text-gray-900 mb-1">
                       {scenario.title}
@@ -556,19 +550,19 @@ export function Reading() {
                       {scenario.summary}
                     </div>
                     <div className="flex flex-wrap gap-2">
-                      <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
+                      <span className="app-badge-muted">
                         {scenario.difficulty}
                       </span>
-                      <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
+                      <span className="app-badge-muted">
                         {scenario.style || 'story'}
                       </span>
                       {scenario.has_cached_material && (
-                        <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700">
+                        <span className="app-badge-accent">
                           Cached passage
                         </span>
                       )}
                       {scenario.is_custom && (
-                        <span className="rounded-full bg-violet-50 px-3 py-1 text-xs font-medium text-violet-700">
+                        <span className="app-badge-accent">
                           Custom
                         </span>
                       )}
@@ -598,7 +592,7 @@ export function Reading() {
                   <button
                     onClick={() => void startReading(false)}
                     disabled={isStartingSession}
-                    className="inline-flex items-center gap-2 rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white hover:bg-sky-700 disabled:cursor-not-allowed disabled:bg-sky-300"
+                    className="app-btn-primary"
                   >
                     {isStartingSession ? (
                       <Loader2 className="w-4 h-4 animate-spin" />
@@ -610,7 +604,7 @@ export function Reading() {
                   <button
                     onClick={() => void startReading(true)}
                     disabled={isStartingSession}
-                    className="inline-flex items-center gap-2 rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-70"
+                    className="app-btn-secondary"
                   >
                     <RefreshCw className="w-4 h-4" />
                     Refresh Passage
@@ -619,19 +613,19 @@ export function Reading() {
               </div>
 
               <div className="flex flex-wrap gap-2 mt-4">
-                <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
+                <span className="app-badge-muted">
                   {selectedScenario.difficulty}
                 </span>
-                <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
+                <span className="app-badge-muted">
                   {selectedScenario.style || 'story'}
                 </span>
-                <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
+                <span className="app-badge-muted">
                   {selectedScenario.question_count} questions
                 </span>
-                <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
+                <span className="app-badge-muted">
                   Used {selectedScenario.times_used}
                 </span>
-                <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
+                <span className="app-badge-muted">
                   Completed {selectedScenario.times_completed}
                 </span>
               </div>
@@ -646,7 +640,7 @@ export function Reading() {
 
           {session ? (
             <>
-              <div className="bg-white rounded-lg p-6 border border-gray-200">
+              <div className="app-panel p-6">
                 <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
                   <div>
                     <div className="text-sm uppercase tracking-[0.2em] text-slate-500 mb-1">
@@ -657,27 +651,27 @@ export function Reading() {
                     </h3>
                   </div>
                   <div className="flex flex-wrap gap-2">
-                    <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
+                    <span className="app-badge-muted">
                       {session.cached_material
                         ? 'Cached passage'
                         : 'Freshly generated passage'}
                     </span>
                     {session.source_note && (
-                      <span className="rounded-full bg-sky-50 px-3 py-1 text-xs font-medium text-sky-700">
+                      <span className="app-badge-accent">
                         {session.source_note}
                       </span>
                     )}
                   </div>
                 </div>
 
-                <div className="rounded-3xl border border-slate-200 bg-slate-50 p-8">
+                <div className="app-panel-muted p-8">
                   <div className="whitespace-pre-wrap text-lg leading-9 text-slate-900">
                     {session.passage}
                   </div>
                 </div>
               </div>
 
-              <div className="bg-white rounded-lg p-6 border border-gray-200">
+              <div className="app-panel p-6">
                 <div className="flex items-center justify-between gap-3 mb-6">
                   <div>
                     <h3 className="font-semibold">Reading Quiz</h3>
@@ -697,7 +691,7 @@ export function Reading() {
                   {session.questions.map((question, index) => (
                     <div
                       key={question.id}
-                      className="rounded-2xl border border-gray-200 p-5"
+                      className="app-panel-muted p-5"
                     >
                       <div className="font-medium text-slate-900 mb-4">
                         {index + 1}. {question.question}
@@ -716,11 +710,7 @@ export function Reading() {
                                 }))
                               }
                               disabled={readingSubmitted}
-                              className={`rounded-xl border px-4 py-3 text-left transition-colors ${
-                                selected
-                                  ? 'border-sky-500 bg-sky-50 text-sky-900'
-                                  : 'border-gray-200 bg-white hover:border-gray-300'
-                              } ${readingSubmitted ? 'cursor-default' : ''}`}
+                              className={`${selected ? 'app-select-card app-select-card-active' : 'app-select-card'} ${readingSubmitted ? 'cursor-default' : ''}`}
                             >
                               {choice}
                             </button>
@@ -735,7 +725,7 @@ export function Reading() {
                   {!readingSubmitted ? (
                     <button
                       onClick={() => void submitReadingQuiz()}
-                      className="inline-flex items-center gap-2 rounded-lg bg-sky-600 px-5 py-3 font-medium text-white hover:bg-sky-700"
+                      className="app-btn-primary"
                     >
                       <BookOpenText className="w-4 h-4" />
                       Grade Quiz
@@ -743,7 +733,7 @@ export function Reading() {
                   ) : (
                     <button
                       onClick={() => void startReading(false)}
-                      className="inline-flex items-center gap-2 rounded-lg bg-sky-600 px-5 py-3 font-medium text-white hover:bg-sky-700"
+                      className="app-btn-primary"
                     >
                       <RefreshCw className="w-4 h-4" />
                       New Question Set
@@ -753,7 +743,7 @@ export function Reading() {
               </div>
 
               {readingResults && (
-                <div className="bg-white rounded-lg p-6 border border-gray-200">
+                <div className="app-panel p-6">
                   <div className="flex items-center justify-between gap-4 mb-4">
                     <div>
                       <h3 className="font-semibold">Results</h3>
@@ -761,9 +751,7 @@ export function Reading() {
                         Review the misses, then add any new useful words.
                       </p>
                     </div>
-                    <span
-                      className={`inline-flex rounded-full px-4 py-2 text-sm font-semibold ${readingScoreBadgeClass}`}
-                    >
+                    <span className={`${readingScoreBadgeClass} px-4 py-2 text-sm font-semibold`}>
                       {readingResults.correctAnswers}/{readingResults.total} correct (
                       {readingResults.percent}%)
                     </span>
@@ -773,20 +761,17 @@ export function Reading() {
                     <div className="space-y-4 mb-6">
                       <h4 className="font-medium">Where You Missed</h4>
                       {readingResults.incorrectRows.map((row) => (
-                        <div
-                          key={row.id}
-                          className="rounded-2xl border border-rose-200 bg-rose-50 p-4"
-                        >
-                          <div className="font-medium text-rose-900 mb-2">
+                        <div key={row.id} className="app-panel-muted p-4">
+                          <div className="font-medium text-gray-900 mb-2">
                             {row.question}
                           </div>
-                          <div className="text-sm text-rose-900 mb-1">
+                          <div className="text-sm text-gray-700 mb-1">
                             Your answer: {row.selected_text}
                           </div>
-                          <div className="text-sm text-rose-900 mb-2">
+                          <div className="text-sm text-gray-700 mb-2">
                             Correct answer: {row.correct_text}
                           </div>
-                          <div className="text-sm text-rose-800">
+                          <div className="text-sm text-gray-600">
                             {row.explanation}
                           </div>
                         </div>
@@ -797,7 +782,7 @@ export function Reading() {
                   <div>
                     <h4 className="font-medium mb-4">New Words Introduced</h4>
                     {session.new_words.length === 0 ? (
-                      <div className="rounded-xl bg-slate-50 px-4 py-4 text-sm text-slate-500">
+                      <div className="app-banner">
                         No new words were introduced in this passage.
                       </div>
                     ) : (
@@ -805,10 +790,7 @@ export function Reading() {
                         {session.new_words.map((word, index) => {
                           const wordKey = `${word.word}:${word.reading}:${index}`;
                           return (
-                            <div
-                              key={wordKey}
-                              className="rounded-2xl border border-gray-200 p-4"
-                            >
+                            <div key={wordKey} className="app-panel-muted p-4">
                               <div className="font-semibold text-slate-900 mb-1">
                                 {word.word} [{word.reading}]
                               </div>
@@ -824,7 +806,7 @@ export function Reading() {
                                   onClick={() =>
                                     void addReadingWord(wordKey, 'global', word)
                                   }
-                                  className="rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                                  className="app-btn-secondary"
                                 >
                                   Add to Global
                                 </button>
@@ -832,7 +814,7 @@ export function Reading() {
                                   onClick={() =>
                                     void addReadingWord(wordKey, 'deck', word)
                                   }
-                                  className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sm font-medium text-sky-800 hover:bg-sky-100"
+                                  className="app-btn-primary"
                                 >
                                   Add to Deck
                                 </button>
@@ -862,7 +844,7 @@ export function Reading() {
               )}
             </>
           ) : (
-            <div className="bg-white rounded-lg p-8 border border-gray-200 text-center text-gray-500">
+            <div className="app-empty">
               {selectedScenario
                 ? 'Select "Open Reading" to load the cached passage or generate one for this scenario.'
                 : 'Generate or add a reading scenario to get started.'}

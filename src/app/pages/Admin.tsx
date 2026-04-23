@@ -91,21 +91,35 @@ export function Admin() {
   };
 
   return (
-    <div className="mx-auto max-w-7xl space-y-6">
-      <div className="rounded-2xl border border-amber-200 bg-amber-50 p-6">
-        <h2 className="text-2xl font-semibold text-amber-950">Admin Panel</h2>
-        <p className="mt-2 text-sm text-amber-900">
+    <div className="app-page max-w-7xl">
+      <div className="app-page-header">
+        <div>
+          <h2 className="app-page-title">Admin Panel</h2>
+          <p className="app-page-description">
+            Manage account status, AI access, OCR access, and password resets.
+            Changes apply immediately.
+          </p>
+        </div>
+      </div>
+
+      <div className="app-banner-warning">
+        <p>
           Manage account status, AI access, OCR access, and password resets.
           Changes apply immediately.
         </p>
       </div>
 
-      <div className="rounded-2xl border border-gray-200 bg-white p-6">
-        <div className="mb-4 flex items-center justify-between">
-          <h3 className="text-lg font-semibold">Accounts</h3>
+      <div className="app-panel p-6">
+        <div className="app-section-header mb-4">
+          <div>
+            <h3 className="app-section-title">Accounts</h3>
+            <p className="app-section-copy">
+              Update permissions, deactivate access, and issue temporary reset credentials.
+            </p>
+          </div>
           <button
             onClick={() => void loadRows()}
-            className="rounded-lg border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+            className="app-btn-secondary"
           >
             Refresh
           </button>
@@ -116,10 +130,7 @@ export function Admin() {
         ) : (
           <div className="space-y-4">
             {rows.map((row) => (
-              <div
-                key={row.id}
-                className="rounded-2xl border border-gray-200 p-5"
-              >
+              <div key={row.id} className="app-panel-muted p-5">
                 <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
                   <div>
                     <div className="text-lg font-semibold text-gray-900">
@@ -132,7 +143,7 @@ export function Admin() {
                   </div>
 
                   <div className="grid gap-3 sm:grid-cols-4">
-                    <label className="flex items-center gap-2 rounded-xl border border-gray-200 px-4 py-3 text-sm text-gray-700">
+                    <label className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-4 py-3 text-sm text-gray-700">
                       <input
                         type="checkbox"
                         checked={row.is_admin}
@@ -142,7 +153,7 @@ export function Admin() {
                       />
                       Admin
                     </label>
-                    <label className="flex items-center gap-2 rounded-xl border border-gray-200 px-4 py-3 text-sm text-gray-700">
+                    <label className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-4 py-3 text-sm text-gray-700">
                       <input
                         type="checkbox"
                         checked={row.can_use_ai}
@@ -152,7 +163,7 @@ export function Admin() {
                       />
                       AI Access
                     </label>
-                    <label className="flex items-center gap-2 rounded-xl border border-gray-200 px-4 py-3 text-sm text-gray-700">
+                    <label className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-4 py-3 text-sm text-gray-700">
                       <input
                         type="checkbox"
                         checked={row.can_use_ocr}
@@ -162,7 +173,7 @@ export function Admin() {
                       />
                       OCR Access
                     </label>
-                    <label className="flex items-center gap-2 rounded-xl border border-gray-200 px-4 py-3 text-sm text-gray-700">
+                    <label className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-4 py-3 text-sm text-gray-700">
                       <input
                         type="checkbox"
                         checked={row.is_active}
@@ -178,7 +189,7 @@ export function Admin() {
                 <div className="mt-5 grid gap-4 lg:grid-cols-[auto_1fr_auto] lg:items-end">
                   <button
                     onClick={() => void handleSave(row)}
-                    className="rounded-xl bg-gray-900 px-5 py-3 text-sm font-medium text-white hover:bg-black"
+                    className="app-btn-primary"
                   >
                     Save Permissions
                   </button>
@@ -197,13 +208,13 @@ export function Admin() {
                         }))
                       }
                       placeholder="Temporary password"
-                      className="w-full rounded-xl border border-gray-300 px-4 py-3 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                      className="app-input"
                     />
                   </div>
 
                   <button
                     onClick={() => void handleResetPassword(row)}
-                    className="rounded-xl border border-gray-300 px-5 py-3 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                    className="app-btn-secondary"
                   >
                     Reset Password
                   </button>

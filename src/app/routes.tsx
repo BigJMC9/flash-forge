@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { Navigate, createBrowserRouter } from 'react-router';
+import { Navigate, createBrowserRouter, useLocation } from 'react-router';
 import { Layout } from './components/Layout';
 import { useApp } from './contexts/AppContext';
 import { Home } from './pages/Home';
@@ -34,14 +34,12 @@ function PublicPage({ children }: { children: ReactNode }) {
 }
 
 function PublicOnlyPage({ children }: { children: ReactNode }) {
-  const { isAuthenticated, isLoading } = useApp();
-
-  if (isLoading) {
-    return <LoadingState />;
-  }
+  const { isAuthenticated } = useApp();
+  const location = useLocation();
+  const redirectTo = (location.state as { redirectTo?: string } | null)?.redirectTo;
 
   if (isAuthenticated) {
-    return <Navigate to="/dashboard" replace />;
+    return <Navigate to={redirectTo?.startsWith('/') ? redirectTo : '/dashboard'} replace />;
   }
 
   return <Layout>{children}</Layout>;
@@ -49,13 +47,20 @@ function PublicOnlyPage({ children }: { children: ReactNode }) {
 
 function PrivatePage({ children }: { children: ReactNode }) {
   const { isAuthenticated, isLoading } = useApp();
+  const location = useLocation();
 
   if (isLoading) {
     return <LoadingState />;
   }
 
   if (!isAuthenticated) {
-    return <Navigate to="/login" replace />;
+    return (
+      <Navigate
+        to="/login"
+        replace
+        state={{ redirectTo: `${location.pathname}${location.search}` }}
+      />
+    );
   }
 
   return <Layout>{children}</Layout>;
@@ -63,13 +68,20 @@ function PrivatePage({ children }: { children: ReactNode }) {
 
 function AdminPage({ children }: { children: ReactNode }) {
   const { isAdmin, isAuthenticated, isLoading } = useApp();
+  const location = useLocation();
 
   if (isLoading) {
     return <LoadingState />;
   }
 
   if (!isAuthenticated) {
-    return <Navigate to="/login" replace />;
+    return (
+      <Navigate
+        to="/login"
+        replace
+        state={{ redirectTo: `${location.pathname}${location.search}` }}
+      />
+    );
   }
 
   if (!isAdmin) {

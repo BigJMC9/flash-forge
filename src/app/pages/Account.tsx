@@ -1,5 +1,5 @@
-import { FormEvent, useState } from 'react';
-import { useNavigate } from 'react-router';
+import { FormEvent, useEffect, useState } from 'react';
+import { useNavigate, useSearchParams } from 'react-router';
 import { useApp } from '../contexts/AppContext';
 
 function formatTimestamp(timestamp: number): string {
@@ -18,10 +18,19 @@ export function Account() {
     refreshBootstrap,
   } = useApp();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [inviteToken, setInviteToken] = useState('');
+
+  useEffect(() => {
+    const tokenFromQuery = searchParams.get('invite_token')?.trim() ?? '';
+    if (!tokenFromQuery || inviteToken.trim()) {
+      return;
+    }
+    setInviteToken(tokenFromQuery);
+  }, [inviteToken, searchParams]);
 
   const handlePasswordSubmit = async (event: FormEvent) => {
     event.preventDefault();
@@ -54,6 +63,11 @@ export function Account() {
     const deckId = await acceptInvite({ inviteToken: trimmedToken });
     if (deckId) {
       setInviteToken('');
+      if (searchParams.get('invite_token')) {
+        const nextParams = new URLSearchParams(searchParams);
+        nextParams.delete('invite_token');
+        setSearchParams(nextParams, { replace: true });
+      }
       navigate(`/deck/${deckId}`);
       return;
     }
@@ -62,16 +76,24 @@ export function Account() {
   };
 
   return (
-    <div className="mx-auto max-w-6xl space-y-6">
-      <div className="rounded-2xl border border-gray-200 bg-white p-6">
-        <h2 className="text-2xl font-semibold">Account Settings</h2>
-        <p className="mt-2 text-gray-600">
+    <div className="app-page">
+      <div className="app-page-header">
+        <div>
+          <h2 className="app-page-title">Account Settings</h2>
+          <p className="app-page-description">
+            Manage your password, AI access status, and deck invitations.
+          </p>
+        </div>
+      </div>
+
+      <div className="app-panel p-6">
+        <p className="text-sm text-gray-600">
           Manage your password, AI access status, and deck invitations.
         </p>
       </div>
 
       <div className="grid gap-6 lg:grid-cols-[1fr_1fr]">
-        <section className="rounded-2xl border border-gray-200 bg-white p-6">
+        <section className="app-panel p-6">
           <h3 className="text-lg font-semibold">Profile</h3>
           <dl className="mt-4 space-y-3 text-sm">
             <div className="flex justify-between gap-4 border-b border-gray-100 pb-3">
@@ -103,7 +125,7 @@ export function Account() {
           </dl>
         </section>
 
-        <section className="rounded-2xl border border-gray-200 bg-white p-6">
+        <section className="app-panel p-6">
           <h3 className="text-lg font-semibold">Change Password</h3>
           <form className="mt-4 space-y-4" onSubmit={handlePasswordSubmit}>
             <input
@@ -111,7 +133,7 @@ export function Account() {
               value={currentPassword}
               onChange={(event) => setCurrentPassword(event.target.value)}
               placeholder="Current password"
-              className="w-full rounded-xl border border-gray-300 px-4 py-3 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+              className="app-input"
               autoComplete="current-password"
             />
             <input
@@ -119,7 +141,7 @@ export function Account() {
               value={newPassword}
               onChange={(event) => setNewPassword(event.target.value)}
               placeholder="New password"
-              className="w-full rounded-xl border border-gray-300 px-4 py-3 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+              className="app-input"
               autoComplete="new-password"
             />
             <input
@@ -127,7 +149,7 @@ export function Account() {
               value={confirmPassword}
               onChange={(event) => setConfirmPassword(event.target.value)}
               placeholder="Confirm new password"
-              className={`w-full rounded-xl border px-4 py-3 focus:outline-none focus:ring-2 ${
+              className={`w-full rounded-lg border px-4 py-2.5 text-sm ${
                 !confirmPassword || confirmPassword === newPassword
                   ? 'border-gray-300 focus:border-blue-500 focus:ring-blue-500/20'
                   : 'border-red-300 focus:border-red-500 focus:ring-red-500/20'
@@ -136,7 +158,7 @@ export function Account() {
             />
             <button
               type="submit"
-              className="rounded-xl bg-gray-900 px-5 py-3 text-sm font-medium text-white hover:bg-black"
+              className="app-btn-primary"
             >
               Update Password
             </button>
@@ -145,24 +167,21 @@ export function Account() {
       </div>
 
       <div className="grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
-        <section className="rounded-2xl border border-gray-200 bg-white p-6">
+        <section className="app-panel p-6">
           <div className="mb-4 flex items-center justify-between">
             <h3 className="text-lg font-semibold">Pending Deck Invites</h3>
-            <span className="rounded-full bg-blue-50 px-3 py-1 text-sm text-blue-700">
+            <span className="app-badge-accent text-sm">
               {pendingInvites.length}
             </span>
           </div>
           {pendingInvites.length === 0 ? (
-            <div className="rounded-xl border border-dashed border-gray-300 p-6 text-sm text-gray-500">
+            <div className="app-empty border-dashed p-6">
               No pending invites matched to your username or email.
             </div>
           ) : (
             <div className="space-y-3">
               {pendingInvites.map((invite) => (
-                <div
-                  key={invite.id}
-                  className="rounded-xl border border-gray-200 p-4"
-                >
+                <div key={invite.id} className="app-panel-muted p-4">
                   <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                     <div>
                       <div className="font-medium text-gray-900">
@@ -178,7 +197,7 @@ export function Account() {
                     </div>
                     <button
                       onClick={() => void handleAcceptInvite(invite.id)}
-                      className="rounded-lg bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700"
+                      className="app-btn-primary"
                     >
                       Accept
                     </button>
@@ -189,7 +208,7 @@ export function Account() {
           )}
         </section>
 
-        <section className="rounded-2xl border border-gray-200 bg-white p-6">
+        <section className="app-panel p-6">
           <h3 className="text-lg font-semibold">Accept Token Manually</h3>
           <p className="mt-2 text-sm text-gray-600">
             Use this if someone shares a raw invite token directly instead of the
@@ -201,11 +220,11 @@ export function Account() {
               value={inviteToken}
               onChange={(event) => setInviteToken(event.target.value)}
               placeholder="Paste invite token"
-              className="w-full rounded-xl border border-gray-300 px-4 py-3 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+              className="app-input"
             />
             <button
               type="submit"
-              className="rounded-xl border border-gray-300 px-5 py-3 text-sm font-medium text-gray-700 hover:bg-gray-50"
+              className="app-btn-secondary"
             >
               Accept Token
             </button>

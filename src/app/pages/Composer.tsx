@@ -160,10 +160,18 @@ export function Composer() {
   };
 
   return (
-    <div className="max-w-5xl">
-      <h2 className="text-2xl font-semibold mb-6">Manual Card Composer</h2>
+    <div className="app-page max-w-5xl">
+      <div className="app-page-header">
+        <div>
+          <h2 className="app-page-title">Manual Card Composer</h2>
+          <p className="app-page-description">
+            Build cards manually, generate forms when useful, and save them directly
+            to the active deck or the global library.
+          </p>
+        </div>
+      </div>
 
-      <div className="bg-white rounded-lg p-6 border border-gray-200">
+      <div className="app-panel p-6">
         <div className="grid md:grid-cols-3 gap-4 mb-6">
           <div>
             <label className="block text-sm text-gray-600 mb-2">
@@ -174,7 +182,7 @@ export function Composer() {
               onChange={(event) =>
                 setDestination(event.target.value as 'deck' | 'global')
               }
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="app-input"
             >
               <option value="deck">Current Deck</option>
               <option value="global">Global Library</option>
@@ -193,7 +201,7 @@ export function Composer() {
             <select
               value={schemaKey}
               onChange={(event) => setSchemaKey(event.target.value)}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="app-input"
             >
               {cardSchemas.map((schema) => (
                 <option key={schema.key} value={schema.key}>
@@ -210,7 +218,7 @@ export function Composer() {
             <select
               value={wordForm}
               onChange={(event) => setWordForm(event.target.value)}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="app-input"
             >
               {verbForms.map((form) => (
                 <option key={form.key} value={form.key}>
@@ -226,7 +234,7 @@ export function Composer() {
           <select
             value={wordKind}
             onChange={(event) => setWordKind(event.target.value)}
-            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="app-input"
           >
             {verbTypes.map((type) => (
               <option key={type.key} value={type.key}>
@@ -246,7 +254,7 @@ export function Composer() {
               value={kanji}
               onChange={(event) => setKanji(event.target.value)}
               placeholder="食べる"
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="app-input"
             />
           </div>
 
@@ -257,7 +265,7 @@ export function Composer() {
               value={kana}
               onChange={(event) => setKana(event.target.value)}
               placeholder="たべる"
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="app-input"
             />
           </div>
         </div>
@@ -269,7 +277,7 @@ export function Composer() {
             value={english}
             onChange={(event) => setEnglish(event.target.value)}
             placeholder="to eat"
-            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="app-input"
           />
         </div>
 
@@ -280,7 +288,7 @@ export function Composer() {
             onChange={(event) => setNotes(event.target.value)}
             rows={3}
             placeholder="Optional notes or mnemonic"
-            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="app-input"
           />
         </div>
 
@@ -292,7 +300,7 @@ export function Composer() {
               value={tags}
               onChange={(event) => setTags(event.target.value)}
               placeholder="manual,chapter-2"
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="app-input"
             />
           </div>
 
@@ -300,7 +308,7 @@ export function Composer() {
             <label className="block text-sm text-gray-600 mb-2">
               Media Files
             </label>
-            <label className="inline-flex items-center gap-3 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 cursor-pointer">
+            <label className="app-btn-secondary cursor-pointer">
               <Upload className="w-4 h-4" />
               <span>Select media</span>
               <input
@@ -322,7 +330,7 @@ export function Composer() {
         <div className="mb-4">
           <button
             onClick={() => void handleGenerateForms()}
-            className="px-6 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 flex items-center gap-2"
+            className="app-btn-secondary"
           >
             <Sparkles className="w-4 h-4" />
             Generate Forms
@@ -334,7 +342,7 @@ export function Composer() {
             <h3 className="font-semibold mb-3">Generated Forms</h3>
             <div className="grid md:grid-cols-2 gap-4">
               {Object.entries(forms).map(([key, value]) => (
-                <div key={key} className="border border-gray-200 rounded-lg p-4">
+                <div key={key} className="app-panel-muted p-4">
                   <div className="font-medium capitalize mb-3">
                     {key.replace(/_/g, ' ')}
                   </div>
@@ -352,7 +360,7 @@ export function Composer() {
                         }))
                       }
                       placeholder="Word"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      className="app-input"
                     />
                     <input
                       type="text"
@@ -367,7 +375,7 @@ export function Composer() {
                         }))
                       }
                       placeholder="Reading"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      className="app-input"
                     />
                   </div>
                 </div>
@@ -379,14 +387,14 @@ export function Composer() {
         <div className="flex gap-3">
           <button
             onClick={() => void handleSave()}
-            className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2"
+            className="app-btn-primary"
           >
             <Save className="w-4 h-4" />
             Save Card
           </button>
           <button
             onClick={resetComposer}
-            className="px-6 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
+            className="app-btn-secondary"
           >
             Reset
           </button>

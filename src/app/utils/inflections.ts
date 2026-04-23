@@ -37,6 +37,9 @@ export function generateVerbForms(
     forms.causative = stem + 'わせる'; // Placeholder
   } else if (wordKind === 'suru' || wordKind === 'suru_noun') {
     const base = wordKind === 'suru' ? '' : dictionary.replace(/する$/, '');
+    if (wordKind === 'suru_noun') {
+      forms.dictionary = base || dictionary;
+    }
     forms.masu = base + 'します';
     forms.te = base + 'して';
     forms.past = base + 'した';

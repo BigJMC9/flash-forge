@@ -10,6 +10,7 @@ if str(PROJECT_ROOT) not in sys.path:
 from python_sidecar.main import (  # noqa: E402
     build_adjective_sort_rows,
     build_adjective_conjugation_rows,
+    build_extended_verb_forms,
     build_verb_sort_rows,
     build_verb_conjugation_rows,
     build_word_class_sort_rows,
@@ -236,13 +237,20 @@ class PracticeGamesTests(unittest.TestCase):
 
         result = build_verb_conjugation_rows(cards, ["te", "past"])
         rows = result["rows"]
-
-        self.assertEqual({row["form_key"] for row in rows}, {"te", "past"})
         by_form = {row["form_key"]: row for row in rows}
 
+        self.assertEqual({row["form_key"] for row in rows}, {"te", "past"})
         self.assertEqual(by_form["te"]["expected"], "書いて [かいて]")
         self.assertIn("かいて", by_form["te"]["accepted_answers"])
         self.assertEqual(by_form["past"]["expected"], "書いた [かいた]")
+
+    def test_suru_noun_keeps_base_dictionary_form(self) -> None:
+        forms = build_extended_verb_forms("勉強", "べんきょう", "suru_noun")
+
+        self.assertEqual(forms["dictionary"]["word"], "勉強")
+        self.assertEqual(forms["dictionary"]["reading"], "べんきょう")
+        self.assertEqual(forms["masu"]["word"], "勉強します")
+        self.assertEqual(forms["te"]["word"], "勉強して")
 
 
 if __name__ == "__main__":

@@ -72,7 +72,7 @@ export function Layout({ children }: { children: ReactNode }) {
   return (
     <div className="min-h-screen bg-background">
       <header className="border-b border-gray-200 bg-white">
-        <div className="mx-auto max-w-[1400px] px-6 py-4">
+        <div className="w-full px-6 py-4">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div>
               <h1 className="text-base font-semibold text-gray-900">{appTitle}</h1>
@@ -160,13 +160,15 @@ export function Layout({ children }: { children: ReactNode }) {
             </div>
           )}
 
-          {isLoading && <p className="mt-3 text-sm text-gray-600">Loading workspace…</p>}
+          {sidebarVisible && isLoading && (
+            <p className="mt-3 text-sm text-gray-600">Loading workspace…</p>
+          )}
         </div>
       </header>
 
-      <div className={cn('mx-auto max-w-[1400px]', sidebarVisible ? 'flex' : '')}>
+      <div className={cn('w-full', sidebarVisible ? 'flex' : '')}>
         {sidebarVisible && (
-          <aside className="min-h-[calc(100vh-89px)] w-64 border-r border-gray-200 bg-white">
+          <aside className="min-h-[calc(100vh-89px)] w-64 shrink-0 border-r border-gray-200 bg-white">
             <nav className="space-y-1 p-4">
               {navItems.map((item) => {
                 const Icon = item.icon;
@@ -250,7 +252,7 @@ export function Layout({ children }: { children: ReactNode }) {
           </aside>
         )}
 
-        <main className={sidebarVisible ? 'flex-1 p-6' : 'mx-auto w-full max-w-[1400px] p-6'}>
+        <main className={sidebarVisible ? 'min-w-0 flex-1 p-6' : 'w-full p-6'}>
           {children}
         </main>
       </div>

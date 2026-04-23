@@ -13,7 +13,9 @@ import {
   Users,
   Upload,
 } from 'lucide-react';
+import { ConfirmActionDialog } from '../components/ConfirmActionDialog';
 import { useApp } from '../contexts/AppContext';
+import { copyTextToClipboard } from '../lib/clipboard';
 import { callAction, callActionWithFiles, errorMessage } from '../lib/backend';
 import { DeckCardRow, DeckCollaboratorRow, DeckInviteRow } from '../types';
 
@@ -40,7 +42,6 @@ export function DeckOperations() {
   const [rows, setRows] = useState<DeckCardRow[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkSchemaKey, setBulkSchemaKey] = useState(defaultSchemaKey);
-  const [confirmDelete, setConfirmDelete] = useState(false);
   const [editingCardId, setEditingCardId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<EditForm>({
     kanji: '',
@@ -57,8 +58,17 @@ export function DeckOperations() {
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteUsername, setInviteUsername] = useState('');
   const [lastInviteToken, setLastInviteToken] = useState('');
+  const [deleteCardsDialogOpen, setDeleteCardsDialogOpen] = useState(false);
+  const [collaboratorToRemove, setCollaboratorToRemove] =
+    useState<DeckCollaboratorRow | null>(null);
 
   const deck = decks.find((item) => item.id === deckId) ?? null;
+  const inviteLink = useMemo(() => {
+    if (!lastInviteToken || typeof window === 'undefined') {
+      return '';
+    }
+    return `${window.location.origin}/account?invite_token=${encodeURIComponent(lastInviteToken)}`;
+  }, [lastInviteToken]);
 
   const selectedCardIdForMedia = useMemo(() => {
     if (editingCardId) {
@@ -175,6 +185,7 @@ export function DeckOperations() {
         collaborator_user_id: collaboratorUserId,
       });
       await loadCollaboration();
+      setCollaboratorToRemove(null);
       setStatus({
         type: 'success',
         message: 'Collaborator removed.',
@@ -187,15 +198,17 @@ export function DeckOperations() {
     }
   };
 
-  const handleCopyInvite = async () => {
-    if (!lastInviteToken || !navigator?.clipboard) {
+  const handleCopyInvite = async (value: string, label: string) => {
+    if (!value) {
       return;
     }
 
-    await navigator.clipboard.writeText(lastInviteToken);
+    const copied = await copyTextToClipboard(value);
     setStatus({
-      type: 'success',
-      message: 'Invite token copied to clipboard.',
+      type: copied ? 'success' : 'error',
+      message: copied
+        ? `${label} copied to clipboard.`
+        : `Unable to copy the ${label.toLowerCase()}.`,
     });
   };
 
@@ -291,14 +304,6 @@ export function DeckOperations() {
       return;
     }
 
-    if (!confirmDelete) {
-      setStatus({
-        type: 'warning',
-        message: 'Tick confirm delete before removing cards.',
-      });
-      return;
-    }
-
     try {
       const response = await callAction<{ deleted: number }>('delete_deck_cards', {
         deck_id: deckId,
@@ -308,6 +313,7 @@ export function DeckOperations() {
       await Promise.all([refreshBootstrap(), loadRows()]);
       setSelectedIds(new Set());
       setEditingCardId(null);
+      setDeleteCardsDialogOpen(false);
       setStatus({
         type: 'success',
         message: `Deleted ${response.deleted} card(s).`,
@@ -366,8 +372,8 @@ export function DeckOperations() {
 
   if (!deck) {
     return (
-      <div className="max-w-6xl">
-        <div className="bg-white rounded-lg p-8 border border-gray-200 text-center text-gray-500">
+      <div className="app-page">
+        <div className="app-empty">
           Deck not found.
         </div>
       </div>
@@ -375,14 +381,18 @@ export function DeckOperations() {
   }
 
   return (
-    <div className="max-w-6xl">
-      <h2 className="text-2xl font-semibold mb-2">{deck.name}</h2>
-      <p className="text-gray-600 mb-6">
-        {deck.collection_name} · {deck.card_count} cards ·{' '}
-        {deck.is_owner ? 'Owner' : 'Shared collaborator'}
-      </p>
+    <div className="app-page">
+      <div className="app-page-header">
+        <div>
+          <h2 className="app-page-title">{deck.name}</h2>
+          <p className="app-page-description">
+            {deck.collection_name} · {deck.card_count} cards ·{' '}
+            {deck.is_owner ? 'Owner' : 'Shared collaborator'}
+          </p>
+        </div>
+      </div>
 
-      <div className="bg-white rounded-lg p-6 border border-gray-200 mb-6">
+      <div className="app-panel p-6">
         <div className="flex items-start justify-between gap-4 mb-4">
           <div>
             <h3 className="font-semibold flex items-center gap-2">
@@ -395,7 +405,7 @@ export function DeckOperations() {
                 : 'You can edit this shared deck, but only the owner can manage collaborators.'}
             </p>
           </div>
-          <div className="rounded-full bg-gray-100 px-3 py-1 text-sm text-gray-700">
+          <div className="app-badge-muted text-sm">
             {deck.is_owner ? 'Owner access' : 'Shared access'}
           </div>
         </div>
@@ -409,7 +419,7 @@ export function DeckOperations() {
                 value={inviteEmail}
                 onChange={(event) => setInviteEmail(event.target.value)}
                 placeholder="study-partner@example.com"
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="app-input"
               />
             </div>
             <div>
@@ -421,12 +431,12 @@ export function DeckOperations() {
                 value={inviteUsername}
                 onChange={(event) => setInviteUsername(event.target.value)}
                 placeholder="study_partner"
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="app-input"
               />
             </div>
             <button
               onClick={() => void handleCreateInvite()}
-              className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2"
+              className="app-btn-primary"
             >
               <MailPlus className="w-4 h-4" />
               Create Invite
@@ -435,27 +445,43 @@ export function DeckOperations() {
         )}
 
         {lastInviteToken && deck.is_owner && (
-          <div className="mb-5 rounded-lg border border-blue-200 bg-blue-50 p-4">
+          <div className="app-banner mb-5">
             <div className="text-sm text-blue-900 font-medium mb-2">
-              Share this raw invite token with the target user
+              Share the account link or the raw invite token with the target user.
             </div>
-            <div className="flex flex-col gap-3 md:flex-row md:items-center">
-              <code className="flex-1 rounded bg-white px-3 py-2 text-sm text-blue-950 border border-blue-200">
+            <div className="flex flex-col gap-3">
+              <code className="flex-1 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-800">
                 {lastInviteToken}
               </code>
-              <button
-                onClick={() => void handleCopyInvite()}
-                className="px-4 py-2 border border-blue-300 rounded-lg text-blue-700 hover:bg-white flex items-center gap-2"
-              >
-                <Copy className="w-4 h-4" />
-                Copy
-              </button>
+              {inviteLink && (
+                <code className="flex-1 overflow-x-auto rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-800">
+                  {inviteLink}
+                </code>
+              )}
+              <div className="flex flex-wrap gap-3">
+                <button
+                  onClick={() => void handleCopyInvite(lastInviteToken, 'Invite token')}
+                  className="app-btn-secondary"
+                >
+                  <Copy className="w-4 h-4" />
+                  Copy Token
+                </button>
+                {inviteLink && (
+                  <button
+                    onClick={() => void handleCopyInvite(inviteLink, 'Invite link')}
+                    className="app-btn-secondary"
+                  >
+                    <Copy className="w-4 h-4" />
+                    Copy Link
+                  </button>
+                )}
+              </div>
             </div>
           </div>
         )}
 
         <div className="grid gap-4 lg:grid-cols-2">
-          <div className="rounded-lg border border-gray-200 p-4">
+          <div className="app-panel-muted p-4">
             <div className="font-medium mb-3 flex items-center gap-2">
               <Shield className="w-4 h-4 text-gray-700" />
               Collaborators
@@ -467,7 +493,7 @@ export function DeckOperations() {
                 {collaborators.map((collaborator) => (
                   <div
                     key={collaborator.id}
-                    className="flex items-center justify-between gap-3 rounded-lg border border-gray-200 px-3 py-3"
+                  className="flex items-center justify-between gap-3 rounded-lg border border-gray-200 bg-white px-3 py-3"
                   >
                     <div>
                       <div className="font-medium">{collaborator.username}</div>
@@ -477,7 +503,7 @@ export function DeckOperations() {
                     </div>
                     {deck.is_owner && (
                       <button
-                        onClick={() => void handleRemoveCollaborator(collaborator.id)}
+                        onClick={() => setCollaboratorToRemove(collaborator)}
                         className="text-red-600 hover:text-red-700 flex items-center gap-1 text-sm"
                       >
                         <UserMinus className="w-4 h-4" />
@@ -490,7 +516,7 @@ export function DeckOperations() {
             )}
           </div>
 
-          <div className="rounded-lg border border-gray-200 p-4">
+          <div className="app-panel-muted p-4">
             <div className="font-medium mb-3">Active Invites</div>
             {invites.length === 0 ? (
               <div className="text-sm text-gray-500">No outstanding invites.</div>
@@ -499,7 +525,7 @@ export function DeckOperations() {
                 {invites.map((invite) => (
                   <div
                     key={invite.id}
-                    className="rounded-lg border border-gray-200 px-3 py-3"
+                    className="rounded-lg border border-gray-200 bg-white px-3 py-3"
                   >
                     <div className="font-medium">
                       {invite.invited_username || invite.invited_email || 'Untargeted invite'}
@@ -515,7 +541,7 @@ export function DeckOperations() {
         </div>
       </div>
 
-      <div className="bg-white rounded-lg p-6 border border-gray-200 mb-6">
+      <div className="app-panel p-6">
         <div className="flex gap-3">
           <input
             type="text"
@@ -527,11 +553,11 @@ export function DeckOperations() {
               }
             }}
             placeholder="Search by dictionary form, notes, or inflection"
-            className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="app-input flex-1"
           />
           <button
             onClick={() => void loadRows()}
-            className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2"
+            className="app-btn-primary"
           >
             <Search className="w-4 h-4" />
             Search
@@ -539,12 +565,12 @@ export function DeckOperations() {
         </div>
       </div>
 
-      <div className="bg-white rounded-lg p-6 border border-gray-200 mb-6">
+      <div className="app-panel p-6">
         <h3 className="font-semibold mb-4">
           Bulk Actions ({selectedIds.size} selected)
         </h3>
 
-        <div className="grid md:grid-cols-[1fr_auto_auto_auto] gap-4 items-end">
+        <div className="grid gap-4 items-end md:grid-cols-[1fr_auto_auto]">
           <div>
             <label className="block text-sm text-gray-600 mb-2">
               Schema
@@ -552,7 +578,7 @@ export function DeckOperations() {
             <select
               value={bulkSchemaKey}
               onChange={(event) => setBulkSchemaKey(event.target.value)}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="app-input"
             >
               {cardSchemas.map((schema) => (
                 <option key={schema.key} value={schema.key}>
@@ -564,23 +590,15 @@ export function DeckOperations() {
 
           <button
             onClick={() => void handleBulkSchemaUpdate()}
-            className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+            className="app-btn-primary"
           >
             Apply Schema
           </button>
 
-          <label className="flex items-center gap-2 text-sm text-gray-700">
-            <input
-              type="checkbox"
-              checked={confirmDelete}
-              onChange={(event) => setConfirmDelete(event.target.checked)}
-            />
-            Confirm delete
-          </label>
-
           <button
-            onClick={() => void handleDeleteSelected()}
-            className="px-6 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 flex items-center gap-2"
+            onClick={() => setDeleteCardsDialogOpen(true)}
+            disabled={selectedIds.size === 0}
+            className="app-btn-danger"
           >
             <Trash2 className="w-4 h-4" />
             Delete
@@ -589,7 +607,7 @@ export function DeckOperations() {
       </div>
 
       {editingCardId && (
-        <div className="bg-white rounded-lg p-6 border border-gray-200 mb-6">
+        <div className="app-panel p-6">
           <h3 className="font-semibold mb-4">Edit Card</h3>
 
           <div className="grid md:grid-cols-2 gap-4 mb-4">
@@ -603,7 +621,7 @@ export function DeckOperations() {
                 }))
               }
               placeholder="Kanji"
-              className="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="app-input"
             />
             <input
               type="text"
@@ -615,7 +633,7 @@ export function DeckOperations() {
                 }))
               }
               placeholder="Kana"
-              className="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="app-input"
             />
           </div>
 
@@ -630,7 +648,7 @@ export function DeckOperations() {
                 }))
               }
               placeholder="English"
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="app-input"
             />
           </div>
 
@@ -645,7 +663,7 @@ export function DeckOperations() {
               }
               rows={3}
               placeholder="Notes"
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="app-input"
             />
           </div>
 
@@ -671,13 +689,13 @@ export function DeckOperations() {
           <div className="flex gap-3">
             <button
               onClick={() => void handleSaveEdit()}
-              className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+              className="app-btn-primary"
             >
               Save Changes
             </button>
             <button
               onClick={() => setEditingCardId(null)}
-              className="px-6 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
+              className="app-btn-secondary"
             >
               Cancel
             </button>
@@ -685,7 +703,7 @@ export function DeckOperations() {
         </div>
       )}
 
-      <div className="bg-white rounded-lg p-6 border border-gray-200 mb-6">
+      <div className="app-panel p-6">
         <h3 className="font-semibold mb-4">Replace Card Media</h3>
         <p className="text-sm text-gray-600 mb-4">
           Select exactly one card or open one in edit mode before attaching new
@@ -696,7 +714,7 @@ export function DeckOperations() {
           <select
             value={replaceTarget}
             onChange={(event) => setReplaceTarget(event.target.value)}
-            className="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="app-input"
           >
             <option value="english">Replace English text with media tag</option>
             <option value="kana">Replace Kana text with media tag</option>
@@ -707,14 +725,14 @@ export function DeckOperations() {
           <select
             value={replaceMediaType}
             onChange={(event) => setReplaceMediaType(event.target.value)}
-            className="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="app-input"
           >
             <option value="image">Image</option>
             <option value="audio">Audio</option>
             <option value="video">Video</option>
           </select>
 
-          <label className="inline-flex items-center gap-3 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 cursor-pointer">
+          <label className="app-btn-secondary cursor-pointer">
             <Upload className="w-4 h-4" />
             <span>Select media</span>
             <input
@@ -732,7 +750,7 @@ export function DeckOperations() {
         <div className="flex gap-3 items-center">
           <button
             onClick={() => void handleReplaceMedia()}
-            className="px-6 py-2 bg-gray-900 text-white rounded-lg hover:bg-black"
+            className="app-btn-primary"
           >
             Apply Media
           </button>
@@ -747,43 +765,29 @@ export function DeckOperations() {
       </div>
 
       {rows.length === 0 ? (
-        <div className="bg-white rounded-lg p-8 border border-gray-200 text-center text-gray-500">
+        <div className="app-empty">
           No cards match the current filter.
         </div>
       ) : (
-        <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+        <div className="app-table-wrap">
           <div className="overflow-x-auto">
             <table className="w-full">
-              <thead className="bg-gray-50 border-b border-gray-200">
+              <thead className="app-table-head">
                 <tr>
-                  <th className="px-4 py-3 text-left">Sel</th>
-                  <th className="text-left px-4 py-3 text-sm text-gray-600">
-                    #
-                  </th>
-                  <th className="text-left px-4 py-3 text-sm text-gray-600">
-                    Word
-                  </th>
-                  <th className="text-left px-4 py-3 text-sm text-gray-600">
-                    Reading
-                  </th>
-                  <th className="text-left px-4 py-3 text-sm text-gray-600">
-                    English
-                  </th>
-                  <th className="text-left px-4 py-3 text-sm text-gray-600">
-                    Schema
-                  </th>
-                  <th className="text-left px-4 py-3 text-sm text-gray-600">
-                    Form
-                  </th>
-                  <th className="text-left px-4 py-3 text-sm text-gray-600">
-                    Actions
-                  </th>
+                  <th className="app-table-th">Sel</th>
+                  <th className="app-table-th">#</th>
+                  <th className="app-table-th">Word</th>
+                  <th className="app-table-th">Reading</th>
+                  <th className="app-table-th">English</th>
+                  <th className="app-table-th">Schema</th>
+                  <th className="app-table-th">Form</th>
+                  <th className="app-table-th">Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {rows.map((row) => (
-                  <tr key={row.id} className="border-b border-gray-100">
-                    <td className="px-4 py-3">
+                  <tr key={row.id} className="app-table-row">
+                    <td className="app-table-td">
                       <button onClick={() => toggleSelection(row.id)}>
                         {selectedIds.has(row.id) ? (
                           <CheckSquare className="w-5 h-5 text-blue-600" />
@@ -792,13 +796,13 @@ export function DeckOperations() {
                         )}
                       </button>
                     </td>
-                    <td className="px-4 py-3">{row.index}</td>
-                    <td className="px-4 py-3 font-semibold">{row.kanji}</td>
-                    <td className="px-4 py-3 text-gray-600">{row.kana}</td>
-                    <td className="px-4 py-3">{row.english}</td>
-                    <td className="px-4 py-3 text-sm">{row.schema_label}</td>
-                    <td className="px-4 py-3 text-sm">{row.word_form}</td>
-                    <td className="px-4 py-3">
+                    <td className="app-table-td">{row.index}</td>
+                    <td className="app-table-td font-semibold">{row.kanji}</td>
+                    <td className="app-table-td text-gray-600">{row.kana}</td>
+                    <td className="app-table-td">{row.english}</td>
+                    <td className="app-table-td text-sm">{row.schema_label}</td>
+                    <td className="app-table-td text-sm">{row.word_form}</td>
+                    <td className="app-table-td">
                       <button
                         onClick={() => startEditing(row)}
                         className="text-blue-600 hover:text-blue-700"
@@ -813,6 +817,38 @@ export function DeckOperations() {
           </div>
         </div>
       )}
+
+      <ConfirmActionDialog
+        open={deleteCardsDialogOpen}
+        onOpenChange={setDeleteCardsDialogOpen}
+        title="Delete selected deck cards?"
+        description={`Delete ${selectedIds.size} selected card(s) from this deck. This does not remove matching cards from the global library.`}
+        confirmLabel="Delete Cards"
+        destructive
+        onConfirm={handleDeleteSelected}
+      />
+
+      <ConfirmActionDialog
+        open={Boolean(collaboratorToRemove)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setCollaboratorToRemove(null);
+          }
+        }}
+        title="Remove collaborator?"
+        description={
+          collaboratorToRemove
+            ? `Remove ${collaboratorToRemove.username} from this deck collaboration. They will lose access immediately.`
+            : ''
+        }
+        confirmLabel="Remove Collaborator"
+        destructive
+        onConfirm={() =>
+          collaboratorToRemove
+            ? handleRemoveCollaborator(collaboratorToRemove.id)
+            : Promise.resolve()
+        }
+      />
     </div>
   );
 }

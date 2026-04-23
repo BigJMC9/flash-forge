@@ -51,8 +51,8 @@ export function Revision() {
 
   if (!deck) {
     return (
-      <div className="max-w-4xl mx-auto">
-        <div className="bg-white rounded-lg p-8 border border-gray-200 text-center text-gray-500">
+      <div className="app-page max-w-4xl">
+        <div className="app-empty">
           Deck not found.
         </div>
       </div>
@@ -61,9 +61,16 @@ export function Revision() {
 
   if (rows.length === 0) {
     return (
-      <div className="max-w-4xl mx-auto">
-        <h2 className="text-2xl font-semibold mb-6">Revision: {deck.name}</h2>
-        <div className="bg-white rounded-lg p-8 border border-gray-200 text-center text-gray-500">
+      <div className="app-page max-w-4xl">
+        <div className="app-page-header">
+          <div>
+            <h2 className="app-page-title">Revision: {deck.name}</h2>
+            <p className="app-page-description">
+              Review the current deck one card at a time in a focused flashcard flow.
+            </p>
+          </div>
+        </div>
+        <div className="app-empty">
           No cards are available for revision in this deck.
         </div>
       </div>
@@ -71,11 +78,15 @@ export function Revision() {
   }
 
   return (
-    <div className="max-w-4xl mx-auto">
-      <h2 className="text-2xl font-semibold mb-2">Revision: {deck.name}</h2>
-      <p className="text-gray-600 mb-6">
-        Card {currentIndex + 1} of {rows.length}
-      </p>
+    <div className="app-page max-w-4xl">
+      <div className="app-page-header">
+        <div>
+          <h2 className="app-page-title">Revision: {deck.name}</h2>
+          <p className="app-page-description">
+            Card {currentIndex + 1} of {rows.length}
+          </p>
+        </div>
+      </div>
 
       <div className="bg-gray-200 rounded-full h-2 mb-8">
         <div
@@ -84,14 +95,14 @@ export function Revision() {
         />
       </div>
 
-      <div className="bg-white rounded-lg border-2 border-gray-300 mb-6 min-h-96 flex flex-col">
-        <div className="p-6 border-b border-gray-200 flex items-center justify-between">
+      <div className="app-panel mb-6 flex min-h-96 flex-col overflow-hidden">
+        <div className="flex items-center justify-between border-b border-gray-200 p-6">
           <span className="text-sm text-gray-600">
             {currentCard?.schema_label} · {currentCard?.word_form}
           </span>
           <button
             onClick={() => setShowBack((previous) => !previous)}
-            className="text-sm text-blue-600 hover:text-blue-700"
+            className="app-link"
           >
             {showBack ? 'Show Front' : 'Show Back'}
           </button>
@@ -100,7 +111,7 @@ export function Revision() {
         <button
           type="button"
           onClick={() => setShowBack((previous) => !previous)}
-          className="flex-1 flex flex-col items-center justify-center p-12 text-center"
+          className="flex min-h-[24rem] w-full flex-1 flex-col items-center justify-center p-12 text-center"
         >
           <div className="text-5xl mb-6">
             {showBack ? currentCard?.back : currentCard?.front}
@@ -109,7 +120,7 @@ export function Revision() {
             <p className="text-sm text-gray-500">Click to reveal the answer.</p>
           ) : (
             currentCard?.notes && (
-              <div className="mt-4 max-w-2xl px-6 py-3 bg-yellow-50 border border-yellow-200 rounded-lg text-sm text-gray-700">
+              <div className="app-banner mt-4 max-w-2xl">
                 {currentCard.notes}
               </div>
             )
@@ -124,7 +135,7 @@ export function Revision() {
             setShowBack(false);
           }}
           disabled={currentIndex === 0}
-          className="px-6 py-3 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+          className="app-btn-secondary"
         >
           <ChevronLeft className="w-5 h-5" />
           Previous
@@ -132,7 +143,7 @@ export function Revision() {
 
         <button
           onClick={() => setShowBack((previous) => !previous)}
-          className="px-8 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2"
+          className="app-btn-primary"
         >
           <RotateCcw className="w-5 h-5" />
           Flip Card
@@ -144,7 +155,7 @@ export function Revision() {
             setShowBack(false);
           }}
           disabled={currentIndex === rows.length - 1}
-          className="px-6 py-3 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+          className="app-btn-secondary"
         >
           Next
           <ChevronRight className="w-5 h-5" />

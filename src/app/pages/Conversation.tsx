@@ -35,9 +35,13 @@ const STYLE_OPTIONS = [
 
 function scenarioCardTone(active: boolean): string {
   if (active) {
-    return 'border-sky-500 bg-sky-50 shadow-sm';
+    return 'app-select-card app-select-card-active';
   }
-  return 'border-gray-200 bg-white hover:border-gray-300';
+  return 'app-select-card';
+}
+
+function optionButtonClass(active: boolean): string {
+  return active ? 'app-option app-option-active' : 'app-option';
 }
 
 export function Conversation() {
@@ -285,8 +289,8 @@ export function Conversation() {
 
   if (!deck) {
     return (
-      <div className="max-w-4xl mx-auto">
-        <div className="bg-white rounded-lg p-8 border border-gray-200 text-center text-gray-500">
+      <div className="app-page max-w-4xl">
+        <div className="app-empty">
           Deck not found.
         </div>
       </div>
@@ -294,16 +298,20 @@ export function Conversation() {
   }
 
   return (
-    <div className="max-w-7xl mx-auto">
-      <h2 className="text-2xl font-semibold mb-2">Conversation: {deck.name}</h2>
-      <p className="text-gray-600 mb-6">
-        Cached conversation situations tied to this deck, with a Japanese chat
-        partner and a post-conversation review.
-      </p>
+    <div className="app-page max-w-7xl">
+      <div className="app-page-header">
+        <div>
+          <h2 className="app-page-title">Conversation: {deck.name}</h2>
+          <p className="app-page-description">
+            Cached conversation situations tied to this deck, with a Japanese chat
+            partner and a post-conversation review.
+          </p>
+        </div>
+      </div>
 
       <div className="grid xl:grid-cols-[360px_minmax(0,1fr)] gap-6">
         <div className="space-y-6">
-          <div className="bg-white rounded-lg p-6 border border-gray-200">
+          <div className="app-panel p-6">
             <div className="flex items-center justify-between gap-3 mb-3">
               <div>
                 <h3 className="font-semibold">Scenario Pool</h3>
@@ -314,7 +322,7 @@ export function Conversation() {
               <button
                 onClick={() => void generateSuggestedScenarios()}
                 disabled={isGeneratingScenarios}
-                className="inline-flex items-center gap-2 rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white hover:bg-sky-700 disabled:cursor-not-allowed disabled:bg-sky-300"
+                className="app-btn-primary"
               >
                 {isGeneratingScenarios ? (
                   <Loader2 className="w-4 h-4 animate-spin" />
@@ -325,13 +333,13 @@ export function Conversation() {
               </button>
             </div>
             {recommendedReason && (
-              <div className="rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-800">
+              <div className="app-banner">
                 {shouldGenerateMore ? 'Suggestion:' : 'Cache status:'} {recommendedReason}
               </div>
             )}
           </div>
 
-          <div className="bg-white rounded-lg p-6 border border-gray-200">
+          <div className="app-panel p-6">
             <h3 className="font-semibold mb-4">Add Custom Situation / Topic</h3>
             <div className="space-y-4">
               <div>
@@ -343,7 +351,7 @@ export function Conversation() {
                   value={customTitle}
                   onChange={(event) => setCustomTitle(event.target.value)}
                   placeholder="Ordering coffee, asking for directions, job interview..."
-                  className="w-full rounded-xl border border-gray-300 px-4 py-3 focus:outline-none focus:ring-2 focus:ring-sky-500"
+                  className="app-input"
                 />
               </div>
 
@@ -356,7 +364,7 @@ export function Conversation() {
                   onChange={(event) => setCustomSummary(event.target.value)}
                   rows={3}
                   placeholder="Optional note for the conversation goal."
-                  className="w-full rounded-xl border border-gray-300 px-4 py-3 focus:outline-none focus:ring-2 focus:ring-sky-500"
+                  className="app-input"
                 />
               </div>
 
@@ -369,7 +377,7 @@ export function Conversation() {
                   value={topicHint}
                   onChange={(event) => setTopicHint(event.target.value)}
                   placeholder="shopping, school, train station, part-time job..."
-                  className="w-full rounded-xl border border-gray-300 px-4 py-3 focus:outline-none focus:ring-2 focus:ring-sky-500"
+                  className="app-input"
                 />
               </div>
 
@@ -382,11 +390,7 @@ export function Conversation() {
                     <button
                       key={option.key}
                       onClick={() => setDifficulty(option.key)}
-                      className={`rounded-full px-4 py-2 text-sm font-medium transition-colors ${
-                        difficulty === option.key
-                          ? 'bg-sky-600 text-white'
-                          : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                      }`}
+                      className={optionButtonClass(difficulty === option.key)}
                     >
                       {option.label}
                     </button>
@@ -403,11 +407,7 @@ export function Conversation() {
                     <button
                       key={option.key}
                       onClick={() => setStyle(option.key)}
-                      className={`rounded-full px-4 py-2 text-sm font-medium transition-colors ${
-                        style === option.key
-                          ? 'bg-sky-600 text-white'
-                          : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                      }`}
+                      className={optionButtonClass(style === option.key)}
                     >
                       {option.label}
                     </button>
@@ -418,7 +418,7 @@ export function Conversation() {
               <button
                 onClick={() => void createScenario()}
                 disabled={isCreatingScenario}
-                className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-sky-200 bg-sky-50 px-4 py-3 font-medium text-sky-800 hover:bg-sky-100 disabled:cursor-not-allowed disabled:opacity-70"
+                className="app-btn-secondary w-full"
               >
                 {isCreatingScenario ? (
                   <Loader2 className="w-4 h-4 animate-spin" />
@@ -430,7 +430,7 @@ export function Conversation() {
             </div>
           </div>
 
-          <div className="bg-white rounded-lg p-4 border border-gray-200">
+          <div className="app-panel p-4">
             <div className="flex items-center justify-between mb-3">
               <h3 className="font-semibold">Cached Scenarios</h3>
               {isLoadingScenarios && <Loader2 className="w-4 h-4 animate-spin" />}
@@ -446,9 +446,7 @@ export function Conversation() {
                   <button
                     key={scenario.id}
                     onClick={() => setSelectedScenarioId(scenario.id)}
-                    className={`w-full rounded-2xl border-2 p-4 text-left transition-all ${scenarioCardTone(
-                      scenario.id === selectedScenarioId,
-                    )}`}
+                    className={`w-full ${scenarioCardTone(scenario.id === selectedScenarioId)}`}
                   >
                     <div className="font-semibold text-gray-900 mb-1">
                       {scenario.title}
@@ -457,14 +455,14 @@ export function Conversation() {
                       {scenario.summary}
                     </div>
                     <div className="flex flex-wrap gap-2">
-                      <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
+                      <span className="app-badge-muted">
                         {scenario.difficulty}
                       </span>
-                      <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
+                      <span className="app-badge-muted">
                         {scenario.style || 'casual'}
                       </span>
                       {scenario.is_custom && (
-                        <span className="rounded-full bg-violet-50 px-3 py-1 text-xs font-medium text-violet-700">
+                        <span className="app-badge-accent">
                           Custom
                         </span>
                       )}
@@ -478,7 +476,7 @@ export function Conversation() {
 
         <div className="space-y-6">
           {selectedScenario && (
-            <div className="bg-white rounded-lg p-6 border border-gray-200">
+            <div className="app-panel p-6">
               <div className="flex flex-wrap items-start justify-between gap-4">
                 <div>
                   <div className="text-sm uppercase tracking-[0.2em] text-slate-500 mb-2">
@@ -493,7 +491,7 @@ export function Conversation() {
                 <button
                   onClick={() => void startConversation()}
                   disabled={isStartingSession}
-                  className="inline-flex items-center gap-2 rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white hover:bg-sky-700 disabled:cursor-not-allowed disabled:bg-sky-300"
+                  className="app-btn-primary"
                 >
                   {isStartingSession ? (
                     <Loader2 className="w-4 h-4 animate-spin" />
@@ -505,16 +503,16 @@ export function Conversation() {
               </div>
 
               <div className="flex flex-wrap gap-2 mt-4">
-                <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
+                <span className="app-badge-muted">
                   {selectedScenario.difficulty}
                 </span>
-                <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
+                <span className="app-badge-muted">
                   {selectedScenario.style || 'casual'}
                 </span>
-                <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
+                <span className="app-badge-muted">
                   Used {selectedScenario.times_used}
                 </span>
-                <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
+                <span className="app-badge-muted">
                   Completed {selectedScenario.times_completed}
                 </span>
               </div>
@@ -529,7 +527,7 @@ export function Conversation() {
 
           {sessionId ? (
             <>
-              <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+              <div className="app-panel overflow-hidden">
                 <div className="border-b border-gray-200 px-6 py-4">
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div>
@@ -547,7 +545,7 @@ export function Conversation() {
                     <button
                       onClick={() => void completeConversation()}
                       disabled={isCompletingSession || Boolean(feedback)}
-                      className="inline-flex items-center gap-2 rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-70"
+                      className="app-btn-secondary"
                     >
                       {isCompletingSession ? (
                         <Loader2 className="w-4 h-4 animate-spin" />
@@ -559,7 +557,7 @@ export function Conversation() {
                   </div>
 
                   {shouldWrapUp && !feedback && (
-                    <div className="mt-4 rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                    <div className="app-banner-warning mt-4">
                       The AI thinks this is a good point to wrap up and get feedback.
                     </div>
                   )}
@@ -577,8 +575,8 @@ export function Conversation() {
                           <div
                             className={`max-w-[85%] rounded-2xl px-4 py-3 text-sm leading-7 shadow-sm ${
                               isAssistant
-                                ? 'bg-white text-slate-900 border border-slate-200'
-                                : 'bg-sky-600 text-white'
+                                ? 'border border-slate-200 bg-white text-slate-900'
+                                : 'bg-blue-600 text-white'
                             }`}
                           >
                             <div className="mb-1 text-[11px] font-semibold uppercase tracking-[0.2em] opacity-70">
@@ -600,12 +598,12 @@ export function Conversation() {
                       disabled={Boolean(feedback)}
                       rows={3}
                       placeholder="Type your reply in Japanese..."
-                      className="min-h-[84px] flex-1 rounded-2xl border border-gray-300 px-4 py-3 focus:outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-gray-100"
+                      className="app-input min-h-[84px] flex-1 disabled:bg-gray-100"
                     />
                     <button
                       type="submit"
                       disabled={isSendingMessage || !messageInput.trim() || Boolean(feedback)}
-                      className="inline-flex items-center gap-2 self-end rounded-2xl bg-sky-600 px-5 py-3 font-medium text-white hover:bg-sky-700 disabled:cursor-not-allowed disabled:bg-sky-300"
+                      className="app-btn-primary self-end"
                     >
                       {isSendingMessage ? (
                         <Loader2 className="w-4 h-4 animate-spin" />
@@ -619,7 +617,7 @@ export function Conversation() {
               </div>
 
               {feedback && (
-                <div className="bg-white rounded-lg p-6 border border-gray-200">
+                <div className="app-panel p-6">
                   <div className="flex flex-wrap items-center justify-between gap-4 mb-4">
                     <div>
                       <h3 className="font-semibold">Conversation Review</h3>
@@ -627,21 +625,21 @@ export function Conversation() {
                         Review what went well and what to fix next round.
                       </p>
                     </div>
-                    <span className="rounded-full bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-800">
+                    <span className="app-badge-muted px-4 py-2 text-sm font-semibold text-slate-800">
                       Score {feedback.score_percent}%
                     </span>
                   </div>
 
                   {feedback.summary && (
-                    <div className="rounded-2xl bg-slate-50 p-4 text-sm text-slate-700 mb-6">
+                    <div className="app-banner mb-6">
                       {feedback.summary}
                     </div>
                   )}
 
                   <div className="grid xl:grid-cols-2 gap-4">
-                    <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
-                      <h4 className="font-medium text-emerald-900 mb-3">Correct</h4>
-                      <div className="space-y-2 text-sm text-emerald-900">
+                    <div className="app-panel-muted p-4">
+                      <h4 className="font-medium text-gray-900 mb-3">Correct</h4>
+                      <div className="space-y-2 text-sm text-gray-700">
                         {feedback.correct_points.length === 0 ? (
                           <div>No specific correct points were called out.</div>
                         ) : (
@@ -652,9 +650,9 @@ export function Conversation() {
                       </div>
                     </div>
 
-                    <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4">
-                      <h4 className="font-medium text-rose-900 mb-3">Incorrect</h4>
-                      <div className="space-y-2 text-sm text-rose-900">
+                    <div className="app-panel-muted p-4">
+                      <h4 className="font-medium text-gray-900 mb-3">Incorrect</h4>
+                      <div className="space-y-2 text-sm text-gray-700">
                         {feedback.incorrect_points.length === 0 ? (
                           <div>No incorrect points were called out.</div>
                         ) : (
@@ -665,9 +663,9 @@ export function Conversation() {
                       </div>
                     </div>
 
-                    <div className="rounded-2xl border border-sky-200 bg-sky-50 p-4">
-                      <h4 className="font-medium text-sky-900 mb-3">Done Well</h4>
-                      <div className="space-y-2 text-sm text-sky-900">
+                    <div className="app-panel-muted p-4">
+                      <h4 className="font-medium text-gray-900 mb-3">Done Well</h4>
+                      <div className="space-y-2 text-sm text-gray-700">
                         {feedback.strengths.length === 0 ? (
                           <div>No specific strengths were listed.</div>
                         ) : (
@@ -678,11 +676,11 @@ export function Conversation() {
                       </div>
                     </div>
 
-                    <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
-                      <h4 className="font-medium text-amber-900 mb-3">
+                    <div className="app-panel-muted p-4">
+                      <h4 className="font-medium text-gray-900 mb-3">
                         Needs Improvement
                       </h4>
-                      <div className="space-y-2 text-sm text-amber-900">
+                      <div className="space-y-2 text-sm text-gray-700">
                         {[...feedback.weaknesses, ...feedback.improvements].length ===
                         0 ? (
                           <div>No improvement items were listed.</div>
@@ -700,7 +698,7 @@ export function Conversation() {
               )}
             </>
           ) : (
-            <div className="bg-white rounded-lg p-8 border border-gray-200 text-center text-gray-500">
+            <div className="app-empty">
               {selectedScenario
                 ? 'Select "Start Conversation" to begin a Japanese back-and-forth for this scenario.'
                 : 'Generate or add a conversation scenario to get started.'}

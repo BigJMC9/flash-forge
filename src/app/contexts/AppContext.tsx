@@ -106,8 +106,10 @@ interface AppContextType {
   }) => Promise<string | null>;
   createCollection: (name: string) => Promise<boolean>;
   renameCollection: (collectionId: string, name: string) => Promise<boolean>;
+  deleteCollection: (collectionId: string) => Promise<boolean>;
   createDeck: (collectionId: string, name: string) => Promise<boolean>;
   renameDeck: (deckId: string, name: string) => Promise<boolean>;
+  deleteDeck: (deckId: string) => Promise<boolean>;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -341,6 +343,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       });
     }, `Collection renamed to "${name}".`);
 
+  const deleteCollection = async (collectionId: string): Promise<boolean> =>
+    runMutation(async () => {
+      await callAction('delete_collection', {
+        collection_id: collectionId,
+      });
+    }, 'Collection deleted.');
+
   const createDeck = async (
     collectionId: string,
     name: string,
@@ -359,6 +368,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         name,
       });
     }, `Deck renamed to "${name}".`);
+
+  const deleteDeck = async (deckId: string): Promise<boolean> =>
+    runMutation(async () => {
+      await callAction('delete_deck', {
+        deck_id: deckId,
+      });
+    }, 'Deck deleted.');
 
   const value = useMemo<AppContextType>(
     () => ({
@@ -393,8 +409,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       acceptInvite,
       createCollection,
       renameCollection,
+      deleteCollection,
       createDeck,
       renameDeck,
+      deleteDeck,
     }),
     [
       bootstrap?.app_title,

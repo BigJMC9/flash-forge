@@ -22,19 +22,13 @@ function formatSurface(word: string, reading: string): string {
 function relationClassName(
   relation: 'parent' | 'child' | 'variant' | 'gloss' | 'entry' | undefined,
 ): string {
-  if (relation === 'child') {
-    return 'bg-amber-50 text-amber-700';
-  }
-  if (relation === 'variant') {
-    return 'bg-violet-50 text-violet-700';
-  }
-  if (relation === 'gloss') {
-    return 'bg-emerald-50 text-emerald-700';
+  if (relation === 'child' || relation === 'variant' || relation === 'gloss') {
+    return 'app-badge-accent';
   }
   if (relation === 'parent') {
-    return 'bg-slate-100 text-slate-700';
+    return 'app-badge-muted';
   }
-  return 'bg-gray-100 text-gray-700';
+  return 'app-badge';
 }
 
 function buildEntryTags(entry: DictionaryEntry): string[] {
@@ -181,10 +175,18 @@ export function Dictionary() {
   };
 
   return (
-    <div className="max-w-7xl">
-      <h2 className="text-2xl font-semibold mb-6">Dictionary Search</h2>
+    <div className="app-page max-w-7xl">
+      <div className="app-page-header">
+        <div>
+          <h2 className="app-page-title">Dictionary Search</h2>
+          <p className="app-page-description">
+            Search JMdict, inspect structured entry details, and add selected results to
+            the current deck or global library.
+          </p>
+        </div>
+      </div>
 
-      <div className="bg-white rounded-lg p-6 border border-gray-200 mb-6">
+      <div className="app-panel p-6">
         <div className="flex gap-3">
           <input
             type="text"
@@ -196,12 +198,12 @@ export function Dictionary() {
               }
             }}
             placeholder="Search by Japanese text or English gloss"
-            className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="app-input flex-1"
           />
           <button
             onClick={() => void handleSearch()}
             disabled={isSearching}
-            className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2 disabled:bg-gray-300"
+            className="app-btn-primary"
           >
             <Search className="w-4 h-4" />
             Search
@@ -209,8 +211,8 @@ export function Dictionary() {
         </div>
       </div>
 
-      <div className="bg-white rounded-lg p-6 border border-gray-200 mb-6">
-        <h3 className="font-semibold mb-4">Add Settings</h3>
+      <div className="app-panel p-6">
+        <h3 className="app-section-title mb-4">Add Settings</h3>
 
         <div className="grid md:grid-cols-2 gap-4 mb-4">
           <div>
@@ -222,7 +224,7 @@ export function Dictionary() {
               onChange={(event) =>
                 setDestination(event.target.value as 'deck' | 'global')
               }
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="app-input"
             >
               <option value="deck">Current Deck</option>
               <option value="global">Global Library</option>
@@ -241,7 +243,7 @@ export function Dictionary() {
             <select
               value={schemaKey}
               onChange={(event) => setSchemaKey(event.target.value)}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="app-input"
             >
               {cardSchemas.map((schema) => (
                 <option key={schema.key} value={schema.key}>
@@ -258,7 +260,7 @@ export function Dictionary() {
             <select
               value={wordForm}
               onChange={(event) => setWordForm(event.target.value)}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="app-input"
             >
               {verbForms.map((form) => (
                 <option key={form.key} value={form.key}>
@@ -277,7 +279,7 @@ export function Dictionary() {
               value={englishOverride}
               onChange={(event) => setEnglishOverride(event.target.value)}
               placeholder="Optional replacement English gloss"
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="app-input"
             />
           </div>
         </div>
@@ -290,7 +292,7 @@ export function Dictionary() {
               value={tags}
               onChange={(event) => setTags(event.target.value)}
               placeholder="tag1, tag2"
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="app-input"
             />
           </div>
 
@@ -301,7 +303,7 @@ export function Dictionary() {
               value={notes}
               onChange={(event) => setNotes(event.target.value)}
               placeholder="Shared note for added cards"
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="app-input"
             />
           </div>
         </div>
@@ -310,21 +312,21 @@ export function Dictionary() {
           <button
             onClick={() => void handleAddEntries(Array.from(selectedIds))}
             disabled={selectedIds.size === 0}
-            className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-300"
+            className="app-btn-primary"
           >
             Add Selected ({selectedIds.size})
           </button>
           <button
             onClick={() => setSelectedIds(new Set(results.map((entry) => entry.entry_id)))}
             disabled={results.length === 0}
-            className="px-6 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 disabled:bg-gray-100"
+            className="app-btn-secondary"
           >
             Select All
           </button>
           <button
             onClick={() => setSelectedIds(new Set())}
             disabled={selectedIds.size === 0}
-            className="px-6 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 disabled:bg-gray-100"
+            className="app-btn-secondary"
           >
             Clear
           </button>
@@ -332,32 +334,22 @@ export function Dictionary() {
       </div>
 
       {results.length === 0 ? (
-        <div className="bg-white rounded-lg p-8 border border-gray-200 text-center text-gray-500">
+        <div className="app-empty">
           Search the dictionary to load results.
         </div>
       ) : (
         <div className="grid xl:grid-cols-[minmax(0,1.7fr)_minmax(340px,1fr)] gap-6 items-start">
-          <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+          <div className="app-table-wrap">
             <div className="overflow-x-auto">
               <table className="w-full">
-                <thead className="bg-gray-50 border-b border-gray-200">
+                <thead className="app-table-head">
                   <tr>
-                    <th className="px-4 py-3 text-left">Sel</th>
-                    <th className="text-left px-4 py-3 text-sm text-gray-600">
-                      Headword
-                    </th>
-                    <th className="text-left px-4 py-3 text-sm text-gray-600">
-                      Reading
-                    </th>
-                    <th className="text-left px-4 py-3 text-sm text-gray-600">
-                      English
-                    </th>
-                    <th className="text-left px-4 py-3 text-sm text-gray-600">
-                      Type / Match
-                    </th>
-                    <th className="text-left px-4 py-3 text-sm text-gray-600">
-                      Actions
-                    </th>
+                    <th className="app-table-th">Sel</th>
+                    <th className="app-table-th">Headword</th>
+                    <th className="app-table-th">Reading</th>
+                    <th className="app-table-th">English</th>
+                    <th className="app-table-th">Type / Match</th>
+                    <th className="app-table-th">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -375,11 +367,11 @@ export function Dictionary() {
                             setSelectedEntryId(entry.entry_id);
                           }
                         }}
-                        className={`border-b border-gray-100 align-top cursor-pointer transition-colors ${
+                        className={`app-table-row align-top cursor-pointer transition-colors ${
                           isSelected ? 'bg-blue-50' : 'hover:bg-gray-50'
                         }`}
                       >
-                        <td className="px-4 py-3">
+                        <td className="app-table-td">
                           <button
                             onClick={(event) => {
                               event.stopPropagation();
@@ -393,11 +385,11 @@ export function Dictionary() {
                             )}
                           </button>
                         </td>
-                        <td className="px-4 py-3 font-semibold">
+                        <td className="app-table-td font-semibold">
                           <div className="flex items-start gap-2">
                             <span>{entry.headword}</span>
                             {isSelected && (
-                              <span className="inline-flex px-2 py-0.5 rounded bg-blue-100 text-blue-700 text-xs font-medium">
+                              <span className="app-badge-accent">
                                 Selected
                               </span>
                             )}
@@ -414,8 +406,8 @@ export function Dictionary() {
                               </div>
                             )}
                         </td>
-                        <td className="px-4 py-3 text-gray-600">{entry.reading}</td>
-                        <td className="px-4 py-3">
+                        <td className="app-table-td text-gray-600">{entry.reading}</td>
+                        <td className="app-table-td">
                           <div>{entry.english}</div>
                           {entry.glosses.length > 0 && (
                             <div className="text-xs text-gray-500 mt-1">
@@ -423,9 +415,9 @@ export function Dictionary() {
                             </div>
                           )}
                         </td>
-                        <td className="px-4 py-3 text-sm">
+                        <td className="app-table-td text-sm">
                           <div className="flex flex-col items-start gap-2">
-                            <div className="inline-flex px-2 py-1 bg-blue-50 text-blue-700 rounded">
+                            <div className="app-badge-accent rounded-md">
                               {entry.is_verb
                                 ? entry.verb_type.replace(/_/g, ' ')
                                 : entry.pos_labels[0] ?? 'entry'}
@@ -433,7 +425,7 @@ export function Dictionary() {
                             {entry.search_match && (
                               <>
                                 <div
-                                  className={`inline-flex px-2 py-1 rounded ${relationClassName(entry.search_match.relation)}`}
+                                  className={relationClassName(entry.search_match.relation)}
                                 >
                                   {entry.search_match.relation_label}
                                 </div>
@@ -447,7 +439,7 @@ export function Dictionary() {
                             )}
                           </div>
                         </td>
-                        <td className="px-4 py-3">
+                        <td className="app-table-td">
                           <div className="flex flex-col items-start gap-2">
                             <button
                               onClick={(event) => {
@@ -472,7 +464,7 @@ export function Dictionary() {
             </div>
           </div>
 
-          <aside className="bg-white rounded-lg border border-gray-200 p-6 xl:sticky xl:top-6">
+          <aside className="app-panel p-6 xl:sticky xl:top-6">
             {selectedEntry ? (
               <div className="space-y-6">
                 <div>
@@ -487,7 +479,7 @@ export function Dictionary() {
                     </div>
                     {selectedEntry.search_match && (
                       <span
-                        className={`inline-flex px-2 py-1 rounded text-sm ${relationClassName(selectedEntry.search_match.relation)}`}
+                        className={`${relationClassName(selectedEntry.search_match.relation)} text-sm`}
                       >
                         {selectedEntry.search_match.relation_label}
                       </span>
@@ -535,7 +527,7 @@ export function Dictionary() {
                       {selectedEntryTags.map((tag) => (
                         <span
                           key={`${selectedEntry.entry_id}-tag-${tag}`}
-                          className="inline-flex px-2 py-1 rounded bg-gray-100 text-gray-700 text-xs"
+                          className="app-badge"
                         >
                           {tag}
                         </span>
@@ -573,14 +565,14 @@ export function Dictionary() {
                       {selectedEntry.word_fields.map((field) => (
                         <div
                           key={`${selectedEntry.entry_id}-field-${field.key}`}
-                          className="border border-gray-200 rounded-lg p-3"
+                          className="app-panel-muted p-3"
                         >
                           <div className="flex items-center justify-between gap-3">
                             <div className="font-medium text-sm text-gray-800">
                               {field.label}
                             </div>
                             <span
-                              className={`inline-flex px-2 py-1 rounded text-xs ${relationClassName(field.role)}`}
+                              className={`${relationClassName(field.role)} text-xs`}
                             >
                               {field.role === 'parent' ? 'Parent' : 'Child'}
                             </span>
@@ -601,7 +593,7 @@ export function Dictionary() {
                       {selectedEntry.senses.map((sense) => (
                         <div
                           key={`${selectedEntry.entry_id}-sense-${sense.sense_index}`}
-                          className="border border-gray-200 rounded-lg p-3"
+                          className="app-panel-muted p-3"
                         >
                           <div className="font-medium text-sm text-gray-800">
                             Sense {sense.sense_index}
@@ -634,7 +626,7 @@ export function Dictionary() {
                       {selectedEntry.examples.slice(0, 4).map((example, index) => (
                         <div
                           key={`${selectedEntry.entry_id}-example-${index}`}
-                          className="border border-gray-200 rounded-lg p-3"
+                          className="app-panel-muted p-3"
                         >
                           <div className="text-sm text-gray-800">
                             {example.japanese}
@@ -656,7 +648,7 @@ export function Dictionary() {
                 )}
               </div>
             ) : (
-              <div className="text-sm text-gray-500">
+              <div className="app-empty p-6">
                 Select a dictionary result to inspect its JMdict fields.
               </div>
             )}

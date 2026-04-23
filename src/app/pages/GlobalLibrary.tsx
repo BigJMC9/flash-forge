@@ -6,6 +6,7 @@ import {
   Square,
   Trash2,
 } from 'lucide-react';
+import { ConfirmActionDialog } from '../components/ConfirmActionDialog';
 import { useApp } from '../contexts/AppContext';
 import { callAction, errorMessage } from '../lib/backend';
 import { parseCommaSeparated } from '../lib/text';
@@ -31,6 +32,7 @@ export function GlobalLibrary() {
   const [schemaKey, setSchemaKey] = useState(defaultSchemaKey);
   const [wordForm, setWordForm] = useState(defaultWordForm);
   const [extraTags, setExtraTags] = useState('global_pool');
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
 
   const loadRows = async () => {
     try {
@@ -150,13 +152,6 @@ export function GlobalLibrary() {
       return;
     }
 
-    const shouldDelete = window.confirm(
-      `Delete ${selectedIds.size} card(s) from the global library?`,
-    );
-    if (!shouldDelete) {
-      return;
-    }
-
     try {
       const response = await callAction<{ deleted: number }>(
         'delete_global_cards',
@@ -166,6 +161,7 @@ export function GlobalLibrary() {
       );
       await Promise.all([refreshBootstrap(), loadRows()]);
       setSelectedIds(new Set());
+      setDeleteDialogOpen(false);
       setStatus({
         type: 'success',
         message: `Deleted ${response.deleted} global card(s).`,
@@ -179,16 +175,24 @@ export function GlobalLibrary() {
   };
 
   return (
-    <div className="max-w-6xl">
-      <h2 className="text-2xl font-semibold mb-6">Global Library</h2>
+    <div className="app-page">
+      <div className="app-page-header">
+        <div>
+          <h2 className="app-page-title">Global Library</h2>
+          <p className="app-page-description">
+            Reuse vocabulary across decks, import shared cards into the current context,
+            and keep the library curated.
+          </p>
+        </div>
+      </div>
 
-      <div className="bg-white rounded-lg p-6 border border-gray-200 mb-6">
-        <h3 className="font-semibold mb-4">Import Deck Cards to Global Library</h3>
+      <div className="app-panel p-6">
+        <h3 className="app-section-title mb-4">Import Deck Cards to Global Library</h3>
         <div className="flex gap-3">
           <select
             value={sourceDeckId}
             onChange={(event) => setSourceDeckId(event.target.value)}
-            className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="app-input flex-1"
           >
             <option value="">Select a source deck…</option>
             {decks.map((deck) => (
@@ -199,7 +203,7 @@ export function GlobalLibrary() {
           </select>
           <button
             onClick={() => void handleImportDeckToGlobal()}
-            className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center gap-2"
+            className="app-btn-primary"
           >
             <Download className="w-4 h-4" />
             Import All Cards
@@ -207,7 +211,7 @@ export function GlobalLibrary() {
         </div>
       </div>
 
-      <div className="bg-white rounded-lg p-6 border border-gray-200 mb-6">
+      <div className="app-panel p-6">
         <div className="flex gap-3 mb-4">
           <input
             type="text"
@@ -219,11 +223,11 @@ export function GlobalLibrary() {
               }
             }}
             placeholder="Search by dictionary or inflected form"
-            className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="app-input flex-1"
           />
           <button
             onClick={() => void loadRows()}
-            className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2"
+            className="app-btn-primary"
           >
             <Search className="w-4 h-4" />
             Search
@@ -235,7 +239,7 @@ export function GlobalLibrary() {
             <label className="block text-sm text-gray-600 mb-2">
               Current Deck
             </label>
-            <div className="px-4 py-2 border border-gray-300 rounded-lg bg-gray-50 text-sm text-gray-700">
+            <div className="app-banner">
               {currentDeck ? currentDeck.label : 'No context deck selected'}
             </div>
           </div>
@@ -245,7 +249,7 @@ export function GlobalLibrary() {
             <select
               value={schemaKey}
               onChange={(event) => setSchemaKey(event.target.value)}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="app-input"
             >
               {cardSchemas.map((schema) => (
                 <option key={schema.key} value={schema.key}>
@@ -262,7 +266,7 @@ export function GlobalLibrary() {
             <select
               value={wordForm}
               onChange={(event) => setWordForm(event.target.value)}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="app-input"
             >
               {verbForms.map((form) => (
                 <option key={form.key} value={form.key}>
@@ -280,7 +284,7 @@ export function GlobalLibrary() {
             value={extraTags}
             onChange={(event) => setExtraTags(event.target.value)}
             placeholder="global_pool,review"
-            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="app-input"
           />
         </div>
 
@@ -288,14 +292,14 @@ export function GlobalLibrary() {
           <button
             onClick={() => void handleImportToDeck()}
             disabled={selectedIds.size === 0}
-            className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-300"
+            className="app-btn-primary"
           >
             Import Selected to Current Deck
           </button>
           <button
-            onClick={() => void handleDeleteSelected()}
+            onClick={() => setDeleteDialogOpen(true)}
             disabled={selectedIds.size === 0}
-            className="px-6 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 flex items-center gap-2 disabled:bg-gray-300"
+            className="app-btn-danger"
           >
             <Trash2 className="w-4 h-4" />
             Delete Selected
@@ -303,14 +307,14 @@ export function GlobalLibrary() {
           <button
             onClick={() => setSelectedIds(new Set(rows.map((row) => row.id)))}
             disabled={rows.length === 0}
-            className="px-6 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 disabled:bg-gray-100"
+            className="app-btn-secondary"
           >
             Select All
           </button>
           <button
             onClick={() => setSelectedIds(new Set())}
             disabled={selectedIds.size === 0}
-            className="px-6 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 disabled:bg-gray-100"
+            className="app-btn-secondary"
           >
             Clear
           </button>
@@ -396,6 +400,16 @@ export function GlobalLibrary() {
           </div>
         </div>
       )}
+
+      <ConfirmActionDialog
+        open={deleteDialogOpen}
+        onOpenChange={setDeleteDialogOpen}
+        title="Delete selected global cards?"
+        description={`Delete ${selectedIds.size} selected card(s) from the global library. This only removes them from the global pool.`}
+        confirmLabel="Delete Cards"
+        destructive
+        onConfirm={handleDeleteSelected}
+      />
     </div>
   );
 }

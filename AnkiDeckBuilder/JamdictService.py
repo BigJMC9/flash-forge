@@ -935,6 +935,9 @@ def ConjugateSuru(kanji: str, kana: str, wordForm: str, suruNoun: bool = False) 
     kanjiBase = kanji if suruNoun else SplitSuruBase(kanji)
     kanaBase = kana if suruNoun else (kana[:-2] if kana.endswith("する") else SplitSuruBase(kana))
 
+    if suruNoun and wordForm == "dictionary":
+        return kanjiBase, kanaBase
+
     suffixByForm = {
         "dictionary": ("する", "する"),
         "masu": ("します", "します"),

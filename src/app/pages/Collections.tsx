@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Link } from 'react-router';
-import { Edit2, Folder, Plus } from 'lucide-react';
+import { Edit2, Folder, Plus, Trash2 } from 'lucide-react';
+import { ConfirmActionDialog } from '../components/ConfirmActionDialog';
 import { useApp } from '../contexts/AppContext';
 
 export function Collections() {
@@ -9,6 +10,8 @@ export function Collections() {
     decks,
     createCollection,
     createDeck,
+    deleteCollection,
+    deleteDeck,
     renameCollection,
     renameDeck,
     setCurrentCollection,
@@ -22,6 +25,14 @@ export function Collections() {
   );
   const [editingDeckId, setEditingDeckId] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
+  const [collectionToDelete, setCollectionToDelete] = useState<{
+    id: string;
+    name: string;
+    deckCount: number;
+  } | null>(null);
+  const [deckToDelete, setDeckToDelete] = useState<{ id: string; name: string } | null>(
+    null,
+  );
 
   const handleCreateCollection = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -83,23 +94,53 @@ export function Collections() {
     }
   };
 
-  return (
-    <div className="max-w-6xl">
-      <h2 className="text-2xl font-semibold mb-6">Collections & Decks</h2>
+  const handleDeleteCollection = async () => {
+    if (!collectionToDelete) {
+      return;
+    }
 
-      <div className="bg-white rounded-lg p-6 border border-gray-200 mb-6">
-        <h3 className="font-semibold mb-4">Create Collection</h3>
+    const success = await deleteCollection(collectionToDelete.id);
+    if (success) {
+      setCollectionToDelete(null);
+    }
+  };
+
+  const handleDeleteDeck = async () => {
+    if (!deckToDelete) {
+      return;
+    }
+
+    const success = await deleteDeck(deckToDelete.id);
+    if (success) {
+      setDeckToDelete(null);
+    }
+  };
+
+  return (
+    <div className="app-page">
+      <div className="app-page-header">
+        <div>
+          <h2 className="app-page-title">Collections & Decks</h2>
+          <p className="app-page-description">
+            Organize your workspace into collections, create decks, and jump into study
+            flows from the same structure.
+          </p>
+        </div>
+      </div>
+
+      <div className="app-panel p-6">
+        <h3 className="app-section-title mb-4">Create Collection</h3>
         <form onSubmit={handleCreateCollection} className="flex gap-3">
           <input
             type="text"
             value={newCollectionName}
             onChange={(event) => setNewCollectionName(event.target.value)}
             placeholder="Enter a collection name"
-            className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="app-input flex-1"
           />
           <button
             type="submit"
-            className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2"
+            className="app-btn-primary"
           >
             <Plus className="w-4 h-4" />
             Create
@@ -109,7 +150,7 @@ export function Collections() {
 
       <div className="space-y-4">
         {collections.length === 0 ? (
-          <div className="bg-white rounded-lg p-8 border border-gray-200 text-center text-gray-500">
+          <div className="app-empty">
             No collections yet. Create the first collection above.
           </div>
         ) : (
@@ -121,9 +162,9 @@ export function Collections() {
             return (
               <div
                 key={collection.id}
-                className="bg-white rounded-lg border border-gray-200 overflow-hidden"
+                className="app-table-wrap"
               >
-                <div className="bg-gray-50 px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+                <div className="app-table-head flex items-center justify-between px-6 py-4">
                   <div className="flex items-center gap-3">
                     <Folder className="w-5 h-5 text-gray-600" />
                     {editingCollectionId === collection.id ? (
@@ -141,7 +182,7 @@ export function Collections() {
                           }
                         }}
                         autoFocus
-                        className="px-2 py-1 border border-gray-300 rounded"
+                        className="app-input max-w-xs px-2 py-1"
                       />
                     ) : (
                       <>
@@ -163,8 +204,23 @@ export function Collections() {
                       </>
                     )}
                   </div>
-                  <div className="text-sm text-gray-600">
-                    {collectionDecks.length} deck(s)
+                  <div className="flex items-center gap-3">
+                    <div className="text-sm text-gray-600">
+                      {collectionDecks.length} deck(s)
+                    </div>
+                    <button
+                      onClick={() =>
+                        setCollectionToDelete({
+                          id: collection.id,
+                          name: collection.name,
+                          deckCount: collectionDecks.length,
+                        })
+                      }
+                      className="inline-flex items-center gap-1 text-sm text-red-600 hover:text-red-700"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                      Delete
+                    </button>
                   </div>
                 </div>
 
@@ -183,11 +239,11 @@ export function Collections() {
                         }))
                       }
                       placeholder="Create a deck in this collection"
-                      className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      className="app-input flex-1"
                     />
                     <button
                       type="submit"
-                      className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2"
+                      className="app-btn-primary"
                     >
                       <Plus className="w-4 h-4" />
                       Add Deck
@@ -199,25 +255,19 @@ export function Collections() {
                       No decks in this collection yet.
                     </p>
                   ) : (
-                    <div className="border border-gray-200 rounded-lg overflow-hidden">
+                    <div className="app-table-wrap shadow-none">
                       <table className="w-full">
-                        <thead className="bg-gray-50">
+                        <thead className="app-table-head">
                           <tr>
-                            <th className="text-left px-4 py-3 text-sm text-gray-600">
-                              Deck
-                            </th>
-                            <th className="text-left px-4 py-3 text-sm text-gray-600">
-                              Cards
-                            </th>
-                            <th className="text-left px-4 py-3 text-sm text-gray-600">
-                              Actions
-                            </th>
+                            <th className="app-table-th">Deck</th>
+                            <th className="app-table-th">Cards</th>
+                            <th className="app-table-th">Actions</th>
                           </tr>
                         </thead>
                         <tbody>
                           {collectionDecks.map((deck) => (
-                            <tr key={deck.id} className="border-t border-gray-100">
-                              <td className="px-4 py-3">
+                            <tr key={deck.id} className="app-table-row">
+                              <td className="app-table-td">
                                 {editingDeckId === deck.id ? (
                                   <input
                                     type="text"
@@ -233,7 +283,7 @@ export function Collections() {
                                       }
                                     }}
                                     autoFocus
-                                    className="px-2 py-1 border border-gray-300 rounded"
+                                    className="app-input max-w-xs px-2 py-1"
                                   />
                                 ) : (
                                   <div className="flex items-center gap-2">
@@ -250,10 +300,8 @@ export function Collections() {
                                   </div>
                                 )}
                               </td>
-                              <td className="px-4 py-3 text-gray-600">
-                                {deck.card_count}
-                              </td>
-                              <td className="px-4 py-3">
+                              <td className="app-table-td text-gray-600">{deck.card_count}</td>
+                              <td className="app-table-td">
                                 <div className="flex flex-wrap gap-3 text-sm">
                                   <button
                                     onClick={() => setCurrentDeck(deck.id)}
@@ -282,6 +330,17 @@ export function Collections() {
                                   >
                                     Practice
                                   </Link>
+                                  <button
+                                    onClick={() =>
+                                      setDeckToDelete({
+                                        id: deck.id,
+                                        name: deck.name,
+                                      })
+                                    }
+                                    className="text-red-600 hover:text-red-700"
+                                  >
+                                    Delete
+                                  </button>
                                 </div>
                               </td>
                             </tr>
@@ -296,6 +355,42 @@ export function Collections() {
           })
         )}
       </div>
+
+      <ConfirmActionDialog
+        open={Boolean(collectionToDelete)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setCollectionToDelete(null);
+          }
+        }}
+        title="Delete collection?"
+        description={
+          collectionToDelete
+            ? `Delete "${collectionToDelete.name}" and its ${collectionToDelete.deckCount} deck(s). This removes the deck cards, invites, reading caches, and conversation sessions under that collection.`
+            : ''
+        }
+        confirmLabel="Delete Collection"
+        destructive
+        onConfirm={handleDeleteCollection}
+      />
+
+      <ConfirmActionDialog
+        open={Boolean(deckToDelete)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setDeckToDelete(null);
+          }
+        }}
+        title="Delete deck?"
+        description={
+          deckToDelete
+            ? `Delete "${deckToDelete.name}" and all of its cards, collaborators, invites, reading caches, and conversation sessions.`
+            : ''
+        }
+        confirmLabel="Delete Deck"
+        destructive
+        onConfirm={handleDeleteDeck}
+      />
     </div>
   );
 }

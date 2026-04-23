@@ -54,7 +54,9 @@ from AnkiDeckBuilder.DatabaseService import (
     DeckHasCandidate,
     DeckHasKanjiWordForm,
     DecodeJsonStringList,
+    DeleteCollection,
     DeleteCardsByIds,
+    DeleteDeck,
     DeleteGlobalCardsByIds,
     DeleteUserSession,
     GetDashboardRows,
@@ -1329,6 +1331,15 @@ def action_rename_collection(payload: Dict[str, Any]) -> Dict[str, Any]:
     return {"updated": True, "collection_id": collection_id, "name": name}
 
 
+def action_delete_collection(payload: Dict[str, Any]) -> Dict[str, Any]:
+    collection_id = normalize_text(payload.get("collection_id", ""))
+    if not collection_id:
+        raise RuntimeError("collection_id is required.")
+    require_owned_collection(collection_id)
+    deleted = DeleteCollection(get_connection(), collection_id, get_request_user_id())
+    return {"deleted": int(deleted), "collection_id": collection_id}
+
+
 def action_create_deck(payload: Dict[str, Any]) -> Dict[str, Any]:
     collection_id = normalize_text(payload.get("collection_id", ""))
     name = normalize_text(payload.get("name", ""))
@@ -1353,6 +1364,17 @@ def action_rename_deck(payload: Dict[str, Any]) -> Dict[str, Any]:
         raise RuntimeError("Only the deck owner can rename the deck.")
     RenameDeck(get_connection(), deck_id, name, get_request_user_id())
     return {"updated": True, "deck_id": deck_id, "name": name}
+
+
+def action_delete_deck(payload: Dict[str, Any]) -> Dict[str, Any]:
+    deck_id = normalize_text(payload.get("deck_id", ""))
+    if not deck_id:
+        raise RuntimeError("deck_id is required.")
+    deck_row = require_accessible_deck(deck_id, require_write=True)
+    if not bool(deck_row["is_owner"]):
+        raise RuntimeError("Only the deck owner can delete the deck.")
+    deleted = DeleteDeck(get_connection(), deck_id, get_request_user_id())
+    return {"deleted": int(deleted), "deck_id": deck_id}
 
 
 def action_search_dictionary(payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -2927,8 +2949,10 @@ ACTIONS = {
     "remove_deck_collaborator": action_remove_deck_collaborator,
     "create_collection": action_create_collection,
     "rename_collection": action_rename_collection,
+    "delete_collection": action_delete_collection,
     "create_deck": action_create_deck,
     "rename_deck": action_rename_deck,
+    "delete_deck": action_delete_deck,
     "search_dictionary": action_search_dictionary,
     "add_dictionary_entries": action_add_dictionary_entries,
     "quick_add_dictionary_entry": action_quick_add_dictionary_entry,

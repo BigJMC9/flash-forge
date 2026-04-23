@@ -925,6 +925,90 @@ def RenameDeck(connection: sqlite3.Connection, deckId: str, newName: str, ownerU
     connection.commit()
 
 
+def _DeleteDeckRelatedRecords(connection: sqlite3.Connection, deckId: str) -> None:
+    normalizedDeckId = (deckId or "").strip()
+    if not normalizedDeckId:
+        return
+
+    scenarioIds = [
+        row["id"]
+        for row in connection.execute(
+            "SELECT id FROM ai_scenarios WHERE deck_id = ?",
+            (normalizedDeckId,),
+        ).fetchall()
+    ]
+
+    connection.execute("DELETE FROM cards WHERE deck_id = ?", (normalizedDeckId,))
+    connection.execute("DELETE FROM deck_collaborators WHERE deck_id = ?", (normalizedDeckId,))
+    connection.execute("DELETE FROM deck_invites WHERE deck_id = ?", (normalizedDeckId,))
+    connection.execute("DELETE FROM reading_materials WHERE deck_id = ?", (normalizedDeckId,))
+    connection.execute("DELETE FROM conversation_sessions WHERE deck_id = ?", (normalizedDeckId,))
+
+    if scenarioIds:
+        placeholders = ", ".join(["?"] * len(scenarioIds))
+        connection.execute(
+            f"DELETE FROM reading_materials WHERE scenario_id IN ({placeholders})",
+            scenarioIds,
+        )
+        connection.execute(
+            f"DELETE FROM conversation_sessions WHERE scenario_id IN ({placeholders})",
+            scenarioIds,
+        )
+
+    connection.execute("DELETE FROM ai_scenarios WHERE deck_id = ?", (normalizedDeckId,))
+
+
+def DeleteDeck(connection: sqlite3.Connection, deckId: str, ownerUserId: str = "") -> int:
+    normalizedDeckId = (deckId or "").strip()
+    normalizedOwnerUserId = (ownerUserId or "").strip()
+    row = connection.execute(
+        "SELECT id FROM decks WHERE id = ? AND owner_user_id = ? LIMIT 1",
+        (normalizedDeckId, normalizedOwnerUserId),
+    ).fetchone()
+    if row is None:
+        return 0
+
+    _DeleteDeckRelatedRecords(connection, normalizedDeckId)
+    cursor = connection.execute(
+        "DELETE FROM decks WHERE id = ? AND owner_user_id = ?",
+        (normalizedDeckId, normalizedOwnerUserId),
+    )
+    connection.commit()
+    return max(cursor.rowcount, 0)
+
+
+def DeleteCollection(connection: sqlite3.Connection, collectionId: str, ownerUserId: str = "") -> int:
+    normalizedCollectionId = (collectionId or "").strip()
+    normalizedOwnerUserId = (ownerUserId or "").strip()
+    row = connection.execute(
+        "SELECT id FROM collections WHERE id = ? AND owner_user_id = ? LIMIT 1",
+        (normalizedCollectionId, normalizedOwnerUserId),
+    ).fetchone()
+    if row is None:
+        return 0
+
+    deckIds = [
+        deckRow["id"]
+        for deckRow in connection.execute(
+            "SELECT id FROM decks WHERE collection_id = ? AND owner_user_id = ?",
+            (normalizedCollectionId, normalizedOwnerUserId),
+        ).fetchall()
+    ]
+    for deckId in deckIds:
+        _DeleteDeckRelatedRecords(connection, deckId)
+
+    connection.execute(
+        "DELETE FROM decks WHERE collection_id = ? AND owner_user_id = ?",
+        (normalizedCollectionId, normalizedOwnerUserId),
+    )
+    cursor = connection.execute(
+        "DELETE FROM collections WHERE id = ? AND owner_user_id = ?",
+        (normalizedCollectionId, normalizedOwnerUserId),
+    )
+    connection.commit()
+    return max(cursor.rowcount, 0)
+
+
 def GetDeckRow(connection: sqlite3.Connection, deckId: str) -> sqlite3.Row:
     row = connection.execute(
         """

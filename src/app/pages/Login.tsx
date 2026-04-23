@@ -1,18 +1,21 @@
 import { FormEvent, useState } from 'react';
-import { Link, useNavigate } from 'react-router';
+import { Link, useLocation, useNavigate } from 'react-router';
 import { useApp } from '../contexts/AppContext';
 
 export function Login() {
   const { isLoading, login } = useApp();
+  const location = useLocation();
   const navigate = useNavigate();
   const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
+  const redirectTo =
+    (location.state as { redirectTo?: string } | null)?.redirectTo ?? '/dashboard';
 
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
     const didLogin = await login(identifier, password);
     if (didLogin) {
-      navigate('/dashboard', { replace: true });
+      navigate(redirectTo.startsWith('/') ? redirectTo : '/dashboard', { replace: true });
     }
   };
 

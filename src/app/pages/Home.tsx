@@ -5,19 +5,23 @@ import {
   Folder,
   Gamepad2,
   GraduationCap,
-  LayoutDashboard,
   Library,
   MessageSquareText,
   PenTool,
   ScrollText,
   Shield,
-  Upload,
   Users,
 } from 'lucide-react';
 import { Link, useNavigate } from 'react-router';
 import { useApp } from '../contexts/AppContext';
 
-function MetricCard({ label, value }: { label: string; value: number }) {
+function MetricCard({
+  label,
+  value,
+}: {
+  label: string;
+  value: number;
+}) {
   return (
     <div className="app-panel p-4">
       <p className="text-xs font-medium uppercase tracking-[0.12em] text-gray-500">
@@ -33,16 +37,19 @@ function ActionCard({
   description,
   icon: Icon,
   to,
+  onClick,
 }: {
   title: string;
   description: string;
   icon: LucideIcon;
   to: string;
+  onClick?: () => void;
 }) {
   return (
     <Link
       to={to}
-      className="app-panel group flex h-full flex-col gap-3 p-5 transition-colors hover:border-blue-200"
+      onClick={onClick}
+      className="app-panel group flex h-full flex-col gap-3 p-6 transition-colors hover:border-blue-200"
     >
       <div className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-blue-50 text-blue-700">
         <Icon className="h-4 w-4" />
@@ -51,10 +58,6 @@ function ActionCard({
         <h3 className="text-sm font-semibold text-gray-900">{title}</h3>
         <p className="mt-1 text-sm text-gray-600">{description}</p>
       </div>
-      <span className="mt-auto inline-flex items-center gap-1 text-sm font-medium text-blue-700">
-        Open
-        <ArrowRight className="h-4 w-4" />
-      </span>
     </Link>
   );
 }
@@ -64,7 +67,6 @@ export function Home() {
     isAuthenticated,
     currentUser,
     dashboard,
-    collections,
     decks,
     currentDeck,
     setCurrentDeck,
@@ -76,91 +78,56 @@ export function Home() {
 
   if (!isAuthenticated) {
     return (
-      <div className="app-page space-y-8">
-        <section className="relative overflow-hidden rounded-2xl border border-slate-200 bg-[linear-gradient(140deg,#0f172a,#1e3a8a)] text-white">
-          <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(148,163,184,0.24),transparent_42%)]" />
-          <div className="relative grid gap-8 p-8 lg:grid-cols-[1.2fr_0.8fr] lg:p-10">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-blue-200">
-                Flash Forge
-              </p>
-              <h1 className="mt-3 text-3xl font-semibold leading-tight sm:text-4xl">
-                Build Japanese decks with one workflow for writing, reading, and
-                practice.
-              </h1>
-              <p className="mt-4 max-w-xl text-sm text-slate-200 sm:text-base">
-                Keep vocabulary, sentence context, and review flows in sync for every
-                learner on your team.
-              </p>
-              <div className="mt-7 flex flex-wrap gap-3">
-                <Link
-                  to="/register"
-                  className="app-btn-primary bg-white text-slate-900 hover:bg-slate-100"
-                >
-                  Create account
-                </Link>
-                <Link
-                  to="/login"
-                  className="inline-flex items-center justify-center rounded-lg border border-white/30 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-white/10"
-                >
-                  Log in
-                </Link>
-              </div>
-            </div>
-
-            <div className="rounded-xl border border-white/20 bg-white/10 p-5 backdrop-blur">
-              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-blue-200">
-                Built for real study loops
-              </p>
-              <ul className="mt-4 space-y-3 text-sm text-slate-100">
-                <li className="flex items-start gap-3">
-                  <BookOpen className="mt-0.5 h-4 w-4 text-blue-200" />
-                  Import or compose card content with dictionary support.
-                </li>
-                <li className="flex items-start gap-3">
-                  <GraduationCap className="mt-0.5 h-4 w-4 text-blue-200" />
-                  Track deck-level revision without leaving your workspace.
-                </li>
-                <li className="flex items-start gap-3">
-                  <MessageSquareText className="mt-0.5 h-4 w-4 text-blue-200" />
-                  Move from structured review to conversation naturally.
-                </li>
-              </ul>
-            </div>
+      <div className="mx-auto max-w-6xl px-6 py-14 lg:py-20">
+        <section className="mx-auto max-w-3xl text-center">
+          <h1 className="text-4xl font-semibold tracking-tight text-gray-950 sm:text-5xl">
+            Build Japanese learning workflows faster
+          </h1>
+          <p className="mx-auto mt-5 max-w-2xl text-lg leading-8 text-gray-600">
+            Create decks, review vocabulary, practice reading, and run shared study
+            workflows in one calm workspace.
+          </p>
+          <div className="mt-8 flex flex-wrap justify-center gap-3">
+            <Link to="/register" className="app-btn-primary">
+              Create Account
+            </Link>
+            <Link to="/login" className="app-btn-secondary">
+              Sign In
+            </Link>
           </div>
         </section>
 
-        <section className="grid gap-4 md:grid-cols-3">
-          <div className="app-panel p-5">
+        <section className="mt-12 grid gap-4 md:grid-cols-3">
+          <div className="app-panel p-6">
             <div className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-blue-50 text-blue-700">
               <PenTool className="h-4 w-4" />
             </div>
-            <h2 className="mt-3 text-base font-semibold text-gray-900">Authoring</h2>
+            <h2 className="mt-4 text-xl font-semibold text-gray-900">Deck Building</h2>
             <p className="mt-2 text-sm text-gray-600">
-              Compose cards quickly with structured fields that stay reusable across
-              decks.
+              Create structured cards from dictionary entries or manual inputs
+              without leaving the workspace.
             </p>
           </div>
 
-          <div className="app-panel p-5">
+          <div className="app-panel p-6">
             <div className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-blue-50 text-blue-700">
-              <Library className="h-4 w-4" />
+              <ScrollText className="h-4 w-4" />
             </div>
-            <h2 className="mt-3 text-base font-semibold text-gray-900">Organization</h2>
+            <h2 className="mt-4 text-xl font-semibold text-gray-900">Reading Practice</h2>
             <p className="mt-2 text-sm text-gray-600">
-              Keep collections, deck ownership, and shared visibility clean for every
-              collaborator.
+              Turn deck vocabulary into focused reading and comprehension sessions
+              that feel connected to real study goals.
             </p>
           </div>
 
-          <div className="app-panel p-5">
+          <div className="app-panel p-6">
             <div className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-blue-50 text-blue-700">
-              <Gamepad2 className="h-4 w-4" />
+              <Users className="h-4 w-4" />
             </div>
-            <h2 className="mt-3 text-base font-semibold text-gray-900">Practice</h2>
+            <h2 className="mt-4 text-xl font-semibold text-gray-900">Shared Workspace</h2>
             <p className="mt-2 text-sm text-gray-600">
-              Reinforce learning through revision, reading, and conversation in one
-              connected loop.
+              Keep private collections separate while inviting collaborators onto
+              the decks that need shared work.
             </p>
           </div>
         </section>
@@ -173,22 +140,26 @@ export function Home() {
   return (
     <div className="app-page space-y-6">
       <section className="app-panel p-6 lg:p-8">
-        <div className="grid gap-6 lg:grid-cols-[1.25fr_0.75fr]">
+        <div className="grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
           <div>
             <p className="app-kicker">Workspace</p>
             <h1 className="mt-2 text-2xl font-semibold text-gray-900">
               Welcome back, {currentUser?.username}
             </h1>
             <p className="mt-3 max-w-2xl text-sm text-gray-600">
-              Continue building cards, reviewing progress, and practicing from a
-              single shared workspace.
+              Continue building decks and move directly into revision, reading, and
+              conversation from one home screen.
             </p>
             <div className="mt-5 flex flex-wrap gap-2">
-              <Link to="/collections" className="app-btn-primary">
-                Open collections
+              <Link
+                to={focusDeck ? `/revision/${focusDeck.id}` : '/collections'}
+                onClick={() => focusDeck && setCurrentDeck(focusDeck.id)}
+                className="app-btn-primary"
+              >
+                {focusDeck ? 'Continue Studying' : 'Open Collections'}
               </Link>
               <Link to="/composer" className="app-btn-secondary">
-                Compose cards
+                Compose Cards
               </Link>
             </div>
           </div>
@@ -203,11 +174,11 @@ export function Home() {
                   {focusDeck.name}
                 </p>
                 <p className="text-sm text-gray-600">
-                  {focusDeck.collection_name} collection
+                  {focusDeck.collection_name} · {focusDeck.card_count} cards
                 </p>
                 <div className="mt-4 flex flex-wrap gap-2">
                   <Link to={`/deck/${focusDeck.id}`} className="app-btn-secondary">
-                    Open deck
+                    Open Deck
                   </Link>
                   <Link to={`/revision/${focusDeck.id}`} className="app-btn-secondary">
                     Review
@@ -233,12 +204,9 @@ export function Home() {
 
       <section>
         <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-gray-900">Quick actions</h2>
-          <Link to="/import-export" className="app-link text-sm font-medium">
-            Manage imports and exports
-          </Link>
+          <h2 className="text-lg font-semibold text-gray-900">Core areas</h2>
         </div>
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
           <ActionCard
             title="Collections"
             description="Create and manage collections and their deck structure."
@@ -252,16 +220,15 @@ export function Home() {
             to="/composer"
           />
           <ActionCard
-            title="Global Library"
-            description="Browse reusable global cards and copy into your decks."
-            icon={Library}
-            to="/global-library"
-          />
-          <ActionCard
-            title="Import and Export"
-            description="Move deck content in and out with consistent templates."
-            icon={Upload}
-            to="/import-export"
+            title="Current Deck Study"
+            description={
+              focusDeck
+                ? `Open revision, practice, reading, and conversation for ${focusDeck.name}.`
+                : 'Select a deck to unlock revision, practice, reading, and conversation.'
+            }
+            icon={BookOpen}
+            to={focusDeck ? `/revision/${focusDeck.id}` : '/collections'}
+            onClick={() => focusDeck && setCurrentDeck(focusDeck.id)}
           />
         </div>
       </section>
@@ -313,7 +280,7 @@ export function Home() {
           <div className="app-panel p-5">
             <div className="mb-3 flex items-center gap-2">
               <Users className="h-4 w-4 text-blue-700" />
-              <h3 className="text-sm font-semibold text-gray-900">Collaborators</h3>
+              <h3 className="text-sm font-semibold text-gray-900">Pending Invites</h3>
             </div>
             {pendingInvites.length > 0 ? (
               <ul className="space-y-2 text-sm text-gray-700">
@@ -328,11 +295,24 @@ export function Home() {
               </ul>
             ) : (
               <p className="text-sm text-gray-600">
-                No pending invites. Shared workspace updates will appear here.
+                No pending invites right now.
               </p>
             )}
             <Link to="/account" className="mt-4 inline-flex app-link text-sm font-medium">
               Manage account and invites
+            </Link>
+          </div>
+
+          <div className="app-panel p-5">
+            <div className="mb-3 flex items-center gap-2">
+              <Library className="h-4 w-4 text-blue-700" />
+              <h3 className="text-sm font-semibold text-gray-900">Global Library</h3>
+            </div>
+            <p className="text-sm text-gray-600">
+              Reuse vocabulary across decks and keep study content consistent.
+            </p>
+            <Link to="/global-library" className="mt-4 app-btn-secondary">
+              Open library
             </Link>
           </div>
 
@@ -380,13 +360,6 @@ export function Home() {
           </div>
         </section>
       )}
-
-      <section className="app-panel-muted p-4">
-        <div className="flex items-center gap-2 text-sm text-gray-700">
-          <LayoutDashboard className="h-4 w-4 text-blue-700" />
-          {collections.length} collections and {decks.length} decks in your workspace.
-        </div>
-      </section>
     </div>
   );
 }

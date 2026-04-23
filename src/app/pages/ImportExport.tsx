@@ -156,17 +156,25 @@ export function ImportExport() {
   };
 
   return (
-    <div className="max-w-5xl">
-      <h2 className="text-2xl font-semibold mb-6">Import & Export</h2>
+    <div className="app-page max-w-5xl">
+      <div className="app-page-header">
+        <div>
+          <h2 className="app-page-title">Import & Export</h2>
+          <p className="app-page-description">
+            Bring content in through OCR or CSV, then export polished decks without
+            switching tools.
+          </p>
+        </div>
+      </div>
 
-      <div className="bg-white rounded-lg p-6 border border-gray-200 mb-6">
+      <div className="app-panel p-6">
         <div className="flex items-center gap-3 mb-4">
-          <Image className="w-6 h-6 text-blue-600" />
+          <Image className="w-5 h-5 text-blue-700" />
           <h3 className="text-lg font-semibold">OCR / Scan Intake</h3>
         </div>
 
         {!canUseOcr && (
-          <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+          <div className="app-banner-warning mb-4">
             OCR is disabled for your account by default. Ask an administrator to
             enable OCR access if you need image scanning.
           </div>
@@ -181,7 +189,7 @@ export function ImportExport() {
               value={scanDeckId}
               onChange={(event) => setScanDeckId(event.target.value)}
               disabled={!canUseOcr}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="app-input"
             >
               <option value="">Select deck…</option>
               {decks.map((deck) => (
@@ -198,7 +206,7 @@ export function ImportExport() {
               value={scanSchemaKey}
               onChange={(event) => setScanSchemaKey(event.target.value)}
               disabled={!canUseOcr}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="app-input"
             >
               {cardSchemas.map((schema) => (
                 <option key={schema.key} value={schema.key}>
@@ -216,7 +224,7 @@ export function ImportExport() {
               value={scanWordForm}
               onChange={(event) => setScanWordForm(event.target.value)}
               disabled={!canUseOcr}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="app-input"
             >
               {verbForms.map((form) => (
                 <option key={form.key} value={form.key}>
@@ -235,12 +243,14 @@ export function ImportExport() {
             onChange={(event) => setScanTags(event.target.value)}
             disabled={!canUseOcr}
             placeholder="image_ocr,chapter-1"
-            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="app-input"
           />
         </div>
 
         <div className="flex flex-wrap items-center gap-3 mb-4">
-          <label className={`inline-flex items-center gap-3 px-6 py-3 rounded-lg text-white ${canUseOcr ? 'bg-blue-600 hover:bg-blue-700 cursor-pointer' : 'bg-blue-300 cursor-not-allowed'}`}>
+          <label
+            className={`app-btn-primary ${canUseOcr ? 'cursor-pointer' : 'pointer-events-none'}`}
+          >
             <Upload className="w-5 h-5" />
             <span>Select Images</span>
             <input
@@ -258,7 +268,7 @@ export function ImportExport() {
           <button
             onClick={() => void handleRunScan()}
             disabled={!canUseOcr}
-            className="px-6 py-3 border border-gray-300 rounded-lg hover:bg-gray-50"
+            className="app-btn-secondary"
           >
             Run Scan
           </button>
@@ -269,42 +279,34 @@ export function ImportExport() {
         </div>
 
         {scanSummary && (
-          <div className="mb-4 p-4 rounded-lg bg-gray-50 border border-gray-200 text-sm whitespace-pre-wrap">
+          <div className="app-banner mb-4 whitespace-pre-wrap">
             {scanSummary}
           </div>
         )}
 
         {scanPreviewRows.length > 0 && (
-          <div className="border border-gray-200 rounded-lg overflow-hidden mb-4">
+          <div className="app-table-wrap mb-4">
             <table className="w-full">
-              <thead className="bg-gray-50">
+              <thead className="app-table-head">
                 <tr>
-                  <th className="text-left px-4 py-3 text-sm text-gray-600">
-                    Visible Text
-                  </th>
-                  <th className="text-left px-4 py-3 text-sm text-gray-600">
-                    Source
-                  </th>
-                  <th className="text-left px-4 py-3 text-sm text-gray-600">
-                    Word
-                  </th>
-                  <th className="text-left px-4 py-3 text-sm text-gray-600">
-                    English
-                  </th>
+                  <th className="app-table-th">Visible Text</th>
+                  <th className="app-table-th">Source</th>
+                  <th className="app-table-th">Word</th>
+                  <th className="app-table-th">English</th>
                 </tr>
               </thead>
               <tbody>
                 {scanPreviewRows.map((row) => (
                   <tr
                     key={`${row.visible_text}-${row.dictionary_entry_id}`}
-                    className="border-t border-gray-100"
+                    className="app-table-row"
                   >
-                    <td className="px-4 py-3">{row.visible_text}</td>
-                    <td className="px-4 py-3 text-gray-600">{row.source_text}</td>
-                    <td className="px-4 py-3">
+                    <td className="app-table-td">{row.visible_text}</td>
+                    <td className="app-table-td text-gray-600">{row.source_text}</td>
+                    <td className="app-table-td">
                       {row.kanji} [{row.kana}]
                     </td>
-                    <td className="px-4 py-3">{row.english}</td>
+                    <td className="app-table-td">{row.english}</td>
                   </tr>
                 ))}
               </tbody>
@@ -313,15 +315,15 @@ export function ImportExport() {
         )}
 
         {scanErrors.length > 0 && (
-          <div className="p-4 rounded-lg bg-red-50 border border-red-200 text-sm text-red-700">
+          <div className="app-banner-danger">
             {scanErrors.join('\n')}
           </div>
         )}
       </div>
 
-      <div className="bg-white rounded-lg p-6 border border-gray-200 mb-6">
+      <div className="app-panel p-6">
         <div className="flex items-center gap-3 mb-4">
-          <FileText className="w-6 h-6 text-green-600" />
+          <FileText className="w-5 h-5 text-blue-700" />
           <h3 className="text-lg font-semibold">CSV Import</h3>
         </div>
 
@@ -333,7 +335,7 @@ export function ImportExport() {
             <select
               value={csvDeckId}
               onChange={(event) => setCsvDeckId(event.target.value)}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="app-input"
             >
               <option value="">Select deck…</option>
               {decks.map((deck) => (
@@ -344,7 +346,7 @@ export function ImportExport() {
             </select>
           </div>
 
-          <label className="inline-flex items-center gap-3 px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 cursor-pointer">
+          <label className="app-btn-primary cursor-pointer">
             <Upload className="w-5 h-5" />
             <span>Select CSV</span>
             <input
@@ -359,7 +361,7 @@ export function ImportExport() {
         <div className="mt-4 flex items-center gap-3">
           <button
             onClick={() => void handleCsvImport()}
-            className="px-6 py-3 border border-gray-300 rounded-lg hover:bg-gray-50"
+            className="app-btn-secondary"
           >
             Import CSV
           </button>
@@ -371,9 +373,9 @@ export function ImportExport() {
         {csvResult && <p className="text-sm text-gray-600 mt-4">{csvResult}</p>}
       </div>
 
-      <div className="bg-white rounded-lg p-6 border border-gray-200">
+      <div className="app-panel p-6">
         <div className="flex items-center gap-3 mb-4">
-          <Download className="w-6 h-6 text-purple-600" />
+          <Download className="w-5 h-5 text-blue-700" />
           <h3 className="text-lg font-semibold">Anki Export (.apkg)</h3>
         </div>
 
@@ -385,7 +387,7 @@ export function ImportExport() {
             <select
               value={exportDeckId}
               onChange={(event) => setExportDeckId(event.target.value)}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="app-input"
             >
               <option value="">Select deck…</option>
               {decks.map((deck) => (
@@ -398,7 +400,7 @@ export function ImportExport() {
 
           <button
             onClick={() => void handleExportDeck()}
-            className="px-6 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 flex items-center gap-2"
+            className="app-btn-primary"
           >
             <Download className="w-5 h-5" />
             Export Deck

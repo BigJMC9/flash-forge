@@ -1,15 +1,18 @@
 import { FormEvent, useMemo, useState } from 'react';
-import { Link, useNavigate } from 'react-router';
+import { Link, useLocation, useNavigate } from 'react-router';
 import { useApp } from '../contexts/AppContext';
 
 export function Register() {
   const { isLoading, register } = useApp();
+  const location = useLocation();
   const navigate = useNavigate();
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [seedFromTemplate, setSeedFromTemplate] = useState(true);
+  const redirectTo =
+    (location.state as { redirectTo?: string } | null)?.redirectTo ?? '/dashboard';
 
   const passwordsMatch = useMemo(
     () => !confirmPassword || password === confirmPassword,
@@ -29,7 +32,7 @@ export function Register() {
       seedFromTemplate,
     });
     if (didRegister) {
-      navigate('/dashboard', { replace: true });
+      navigate(redirectTo.startsWith('/') ? redirectTo : '/dashboard', { replace: true });
     }
   };
 

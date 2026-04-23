@@ -7,14 +7,22 @@ export function Dashboard() {
   const featuredDecks = decks.slice(0, 6);
 
   return (
-    <div className="max-w-6xl">
-      <h2 className="text-2xl font-semibold mb-6">Dashboard</h2>
+    <div className="app-page">
+      <div className="app-page-header">
+        <div>
+          <h2 className="app-page-title">Dashboard</h2>
+          <p className="app-page-description">
+            Review workspace totals, jump into core actions, and reopen the decks
+            you are actively studying.
+          </p>
+        </div>
+      </div>
 
-      <div className="grid md:grid-cols-4 gap-4 mb-8">
-        <div className="bg-white rounded-lg p-6 border border-gray-200">
+      <div className="grid gap-4 md:grid-cols-4">
+        <div className="app-panel p-5">
           <div className="flex items-center gap-3 mb-2">
-            <div className="p-2 bg-blue-50 rounded-lg">
-              <Folder className="w-5 h-5 text-blue-600" />
+            <div className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-blue-50 text-blue-700">
+              <Folder className="w-4 h-4" />
             </div>
             <div className="text-sm text-gray-600">Collections</div>
           </div>
@@ -23,30 +31,30 @@ export function Dashboard() {
           </div>
         </div>
 
-        <div className="bg-white rounded-lg p-6 border border-gray-200">
+        <div className="app-panel p-5">
           <div className="flex items-center gap-3 mb-2">
-            <div className="p-2 bg-green-50 rounded-lg">
-              <BookOpen className="w-5 h-5 text-green-600" />
+            <div className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-blue-50 text-blue-700">
+              <BookOpen className="w-4 h-4" />
             </div>
             <div className="text-sm text-gray-600">Decks</div>
           </div>
           <div className="text-3xl font-semibold">{dashboard.deck_count}</div>
         </div>
 
-        <div className="bg-white rounded-lg p-6 border border-gray-200">
+        <div className="app-panel p-5">
           <div className="flex items-center gap-3 mb-2">
-            <div className="p-2 bg-purple-50 rounded-lg">
-              <BookOpen className="w-5 h-5 text-purple-600" />
+            <div className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-blue-50 text-blue-700">
+              <BookOpen className="w-4 h-4" />
             </div>
             <div className="text-sm text-gray-600">Deck Cards</div>
           </div>
           <div className="text-3xl font-semibold">{dashboard.card_count}</div>
         </div>
 
-        <div className="bg-white rounded-lg p-6 border border-gray-200">
+        <div className="app-panel p-5">
           <div className="flex items-center gap-3 mb-2">
-            <div className="p-2 bg-orange-50 rounded-lg">
-              <Library className="w-5 h-5 text-orange-600" />
+            <div className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-blue-50 text-blue-700">
+              <Library className="w-4 h-4" />
             </div>
             <div className="text-sm text-gray-600">Global Cards</div>
           </div>
@@ -56,15 +64,22 @@ export function Dashboard() {
         </div>
       </div>
 
-      <div className="mb-8">
-        <h3 className="text-lg font-semibold mb-4">Quick Actions</h3>
-        <div className="grid md:grid-cols-3 gap-4">
+      <section>
+        <div className="app-section-header mb-4">
+          <div>
+            <h3 className="app-section-title">Quick Actions</h3>
+            <p className="app-section-copy">
+              Open the main creation and import flows without leaving the dashboard.
+            </p>
+          </div>
+        </div>
+        <div className="grid gap-4 md:grid-cols-3">
           <Link
             to="/collections"
-            className="bg-white rounded-lg p-6 border border-gray-200 hover:border-blue-300 hover:shadow-md transition-all"
+            className="app-panel p-6 transition-colors hover:border-blue-200"
           >
             <div className="flex items-center gap-3 mb-2">
-              <Plus className="w-5 h-5 text-blue-600" />
+              <Plus className="w-4 h-4 text-blue-700" />
               <div className="font-semibold">Collections</div>
             </div>
             <p className="text-sm text-gray-600">
@@ -74,10 +89,10 @@ export function Dashboard() {
 
           <Link
             to="/dictionary"
-            className="bg-white rounded-lg p-6 border border-gray-200 hover:border-blue-300 hover:shadow-md transition-all"
+            className="app-panel p-6 transition-colors hover:border-blue-200"
           >
             <div className="flex items-center gap-3 mb-2">
-              <BookOpen className="w-5 h-5 text-green-600" />
+              <BookOpen className="w-4 h-4 text-blue-700" />
               <div className="font-semibold">Dictionary</div>
             </div>
             <p className="text-sm text-gray-600">
@@ -87,10 +102,10 @@ export function Dashboard() {
 
           <Link
             to="/import-export"
-            className="bg-white rounded-lg p-6 border border-gray-200 hover:border-blue-300 hover:shadow-md transition-all"
+            className="app-panel p-6 transition-colors hover:border-blue-200"
           >
             <div className="flex items-center gap-3 mb-2">
-              <Library className="w-5 h-5 text-purple-600" />
+              <Library className="w-4 h-4 text-blue-700" />
               <div className="font-semibold">Automation</div>
             </div>
             <p className="text-sm text-gray-600">
@@ -98,46 +113,43 @@ export function Dashboard() {
             </p>
           </Link>
         </div>
-      </div>
+      </section>
 
-      <div>
-        <h3 className="text-lg font-semibold mb-4">Deck Overview</h3>
+      <section>
+        <div className="app-section-header mb-4">
+          <div>
+            <h3 className="app-section-title">Deck Overview</h3>
+            <p className="app-section-copy">
+              Reopen recent decks and set the active study context directly from here.
+            </p>
+          </div>
+        </div>
         {dashboard.rows.length === 0 ? (
-          <div className="bg-white rounded-lg p-8 border border-gray-200 text-center text-gray-500">
+          <div className="app-empty">
             No decks yet. Create a collection and a deck to get started.
           </div>
         ) : (
-          <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+          <div className="app-table-wrap">
             <table className="w-full">
-              <thead className="bg-gray-50 border-b border-gray-200">
+              <thead className="app-table-head">
                 <tr>
-                  <th className="text-left px-6 py-3 text-sm text-gray-600">
-                    Collection
-                  </th>
-                  <th className="text-left px-6 py-3 text-sm text-gray-600">
-                    Deck
-                  </th>
-                  <th className="text-left px-6 py-3 text-sm text-gray-600">
-                    Cards
-                  </th>
-                  <th className="text-left px-6 py-3 text-sm text-gray-600">
-                    Access
-                  </th>
-                  <th className="text-left px-6 py-3 text-sm text-gray-600">
-                    Actions
-                  </th>
+                  <th className="app-table-th">Collection</th>
+                  <th className="app-table-th">Deck</th>
+                  <th className="app-table-th">Cards</th>
+                  <th className="app-table-th">Access</th>
+                  <th className="app-table-th">Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {featuredDecks.map((deck) => (
-                  <tr key={deck.id} className="border-b border-gray-100">
-                    <td className="px-6 py-4">{deck.collection_name}</td>
-                    <td className="px-6 py-4">{deck.name}</td>
-                    <td className="px-6 py-4">{deck.card_count}</td>
-                    <td className="px-6 py-4 text-sm text-gray-600">
+                  <tr key={deck.id} className="app-table-row">
+                    <td className="app-table-td">{deck.collection_name}</td>
+                    <td className="app-table-td">{deck.name}</td>
+                    <td className="app-table-td">{deck.card_count}</td>
+                    <td className="app-table-td text-sm text-gray-600">
                       {deck.is_owner ? 'Owner' : 'Shared'}
                     </td>
-                    <td className="px-6 py-4">
+                    <td className="app-table-td">
                       <div className="flex gap-4 text-sm">
                         <button
                           onClick={() => setCurrentDeck(deck.id)}
@@ -159,7 +171,7 @@ export function Dashboard() {
             </table>
           </div>
         )}
-      </div>
+      </section>
     </div>
   );
 }
