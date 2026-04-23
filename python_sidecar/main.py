@@ -180,6 +180,56 @@ def get_card_text(card: Any, field_name: str) -> str:
             value = ""
     return normalize_text(value)
 
+def get_card_list(card: Any, field_name: str) -> List[str]:
+    try:
+        value = card[field_name]
+    except Exception:
+        if isinstance(card, dict):
+            value = card.get(field_name, [])
+        else:
+            value = []
+
+    if isinstance(value, list):
+        return normalize_string_list(value)
+
+    if isinstance(value, str):
+        text = normalize_text(value)
+        if not text:
+            return []
+        try:
+            parsed = json.loads(text)
+        except Exception:
+            return []
+        if isinstance(parsed, list):
+            return normalize_string_list(parsed)
+
+    return []
+
+def get_dictionary_pos_tags(card: Any) -> List[str]:
+    tags = [tag.lower() for tag in get_card_list(card, "dictionary_pos_tags")]
+    if tags:
+        return tags
+
+    # legacy fallback for old cards
+    pos_text = get_card_text(card, "dictionary_pos").lower()
+    fallback_tags: List[str] = []
+
+    if "adj-i" in pos_text or "adjective (keiyoushi)" in pos_text:
+        fallback_tags.append("adj-i")
+
+    if "adj-na" in pos_text:
+        fallback_tags.append("adj-na")
+    elif "adjectival noun" in pos_text or "keiyodoshi" in pos_text:
+        fallback_tags.append("adj-na")
+
+    if "adverb (fukushi)" in pos_text:
+        fallback_tags.append("adv")
+
+    if "noun" in pos_text:
+        fallback_tags.append("n")
+
+    return normalize_string_list(fallback_tags)
+
 
 def build_card_face_text(card: Any, field_names: List[str]) -> str:
     values: List[str] = []
@@ -242,23 +292,24 @@ def detect_practice_verb_type(card: Any) -> str:
 
 
 def detect_practice_adjective_bucket(card: Any) -> str:
-    pos_text = get_card_text(card, "dictionary_pos").lower()
-    if (
-        "adjectival noun" in pos_text
-        or "adjectival nouns" in pos_text
-        or "quasi-adjective" in pos_text
-        or "quasi-adjectives" in pos_text
-        or "keiyodoshi" in pos_text
-        or "na-adjective" in pos_text
-    ):
+    pos_tags = get_dictionary_pos_tags(card)
+
+    if "adj-na" in pos_tags:
         return "na_adj"
-    if "adjective (keiyoushi)" in pos_text or "i-adjective" in pos_text:
+    if "adj-i" in pos_tags:
         return "i_adj"
 
-    check_text = get_card_text(card, "dictionary_reading") or get_card_text(card, "kana") or get_card_text(card, "kanji")
-    if check_text.endswith("い") and not check_text.endswith("ない"):
-        return "i_adj"
-    return ""
+    return ""  # everything else filtered
+
+def explain_adjective_filter(card: Any) -> str:
+    pos_tags = get_dictionary_pos_tags(card)
+    if "adj-na" in pos_tags:
+        return "included:adj-na"
+    if "adj-i" in pos_tags:
+        return "included:adj-i"
+    if pos_tags:
+        return f"filtered:no_supported_adjective_tag ({', '.join(pos_tags)})"
+    return "filtered:no_pos_tags"
 
 
 def build_practice_dedupe_key(card: Any, bucket: str) -> str:
@@ -1258,12 +1309,25 @@ def build_practice_round_cards(deck_id: str, mode: str) -> List[Dict[str, Any]]:
         return []
 
     rows: List[Dict[str, Any]] = []
+    filtered_rows: List[Dict[str, Any]] = []
     seen_keys = set()
+
     for card in GetDeckCards(get_connection(), deck_id):
         if mode == "verb_sort":
             bucket = detect_practice_verb_bucket(card)
         elif mode == "adjective_sort":
             bucket = detect_practice_adjective_bucket(card)
+            if not bucket:
+                filtered_rows.append(
+                    {
+                        "prompt": build_practice_prompt(card),
+                        "hint": build_practice_hint(card),
+                        "dictionary_pos": get_card_text(card, "dictionary_pos"),
+                        "dictionary_pos_tags": get_dictionary_pos_tags(card),
+                        "reason": explain_adjective_filter(card),
+                    }
+                )
+                continue
         else:
             verb_type = detect_practice_verb_type(card)
             if not verb_type:
@@ -1316,45 +1380,56 @@ def build_practice_round_cards(deck_id: str, mode: str) -> List[Dict[str, Any]]:
             )
             continue
 
-        if not bucket:
-            continue
-        dedupe_key = build_practice_dedupe_key(card, bucket)
-        if dedupe_key in seen_keys:
-            continue
-        seen_keys.add(dedupe_key)
+        if mode in {"verb_sort", "adjective_sort"}:
+            if not bucket:
+                explain_adjective_filter(card)
+                continue
+            dedupe_key = build_practice_dedupe_key(card, bucket)
+            if dedupe_key in seen_keys:
+                continue
+            seen_keys.add(dedupe_key)
 
-        prompt = build_practice_prompt(card)
-        if not prompt:
-            continue
-        rows.append(
-            {
-                "id": dedupe_key,
-                "prompt": prompt,
-                "hint": build_practice_hint(card),
-                "expected": bucket,
-            }
-        )
-
+            prompt = build_practice_prompt(card)
+            if not prompt:
+                continue
+            rows.append(
+                {
+                    "id": dedupe_key,
+                    "prompt": prompt,
+                    "hint": build_practice_hint(card),
+                    "expected": bucket,
+                }
+            )
     random.shuffle(rows)
-    return rows
+    return {
+        "rows": rows,
+        "filtered_rows": filtered_rows,
+    }
 
 
 def action_get_practice_round(payload: Dict[str, Any]) -> Dict[str, Any]:
     deck_id = normalize_text(payload.get("deck_id", ""))
     mode = normalize_text(payload.get("mode", "verb_sort")) or "verb_sort"
+    include_filtered = bool(payload.get("include_filtered", False))
+
     if mode not in {"verb_sort", "adjective_sort", "te_form"}:
         mode = "verb_sort"
-    rows = build_practice_round_cards(deck_id, mode)
-    return {
+
+    result = build_practice_round_cards(deck_id, mode)
+
+    response =  {
         "deck_id": deck_id,
         "mode": mode,
-        "rows": rows,
+        "rows": result["rows"],
         "scoring": {
             "base_correct_points": PRACTICE_BASE_CORRECT_POINTS,
             "incorrect_penalty_points": PRACTICE_INCORRECT_PENALTY_POINTS,
             "bucket_labels": PRACTICE_BUCKET_LABELS,
         },
     }
+    if include_filtered:
+        response["filtered_rows"] = result["filtered_rows"]
+    return response
 
 
 def action_get_counts(payload: Dict[str, Any]) -> Dict[str, Any]:
