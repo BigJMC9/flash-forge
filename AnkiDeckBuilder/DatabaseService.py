@@ -51,6 +51,41 @@ GlobalCardColumnDefinitions = {
     "unique_key": "TEXT NOT NULL DEFAULT ''",
     "created_at": "REAL NOT NULL DEFAULT 0",
 }
+AiScenarioColumnDefinitions = {
+    "deck_id": "TEXT NOT NULL DEFAULT ''",
+    "mode": "TEXT NOT NULL DEFAULT ''",
+    "title": "TEXT NOT NULL DEFAULT ''",
+    "summary": "TEXT NOT NULL DEFAULT ''",
+    "topic_hint": "TEXT NOT NULL DEFAULT ''",
+    "difficulty": "TEXT NOT NULL DEFAULT 'intermediate'",
+    "style": "TEXT NOT NULL DEFAULT ''",
+    "question_count": "INTEGER NOT NULL DEFAULT 4",
+    "tags_json": "TEXT NOT NULL DEFAULT '[]'",
+    "is_custom": "INTEGER NOT NULL DEFAULT 0",
+    "times_used": "INTEGER NOT NULL DEFAULT 0",
+    "times_completed": "INTEGER NOT NULL DEFAULT 0",
+    "created_at": "REAL NOT NULL DEFAULT 0",
+    "updated_at": "REAL NOT NULL DEFAULT 0",
+}
+ReadingMaterialColumnDefinitions = {
+    "scenario_id": "TEXT NOT NULL DEFAULT ''",
+    "deck_id": "TEXT NOT NULL DEFAULT ''",
+    "title": "TEXT NOT NULL DEFAULT ''",
+    "source_note": "TEXT NOT NULL DEFAULT ''",
+    "passage": "TEXT NOT NULL DEFAULT ''",
+    "new_words_json": "TEXT NOT NULL DEFAULT '[]'",
+    "created_at": "REAL NOT NULL DEFAULT 0",
+    "updated_at": "REAL NOT NULL DEFAULT 0",
+}
+ConversationSessionColumnDefinitions = {
+    "scenario_id": "TEXT NOT NULL DEFAULT ''",
+    "deck_id": "TEXT NOT NULL DEFAULT ''",
+    "messages_json": "TEXT NOT NULL DEFAULT '[]'",
+    "summary_json": "TEXT NOT NULL DEFAULT '{}'",
+    "status": "TEXT NOT NULL DEFAULT 'active'",
+    "created_at": "REAL NOT NULL DEFAULT 0",
+    "updated_at": "REAL NOT NULL DEFAULT 0",
+}
 WordFormFieldByKey = {
     "dictionary": ("kanji", "kana"),
     "masu": ("kanji_masu", "kana_masu"),
@@ -153,6 +188,71 @@ def EnsureDatabaseSchema(connection: sqlite3.Connection) -> None:
         """
     )
     EnsureGlobalCardsTableColumns(connection)
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS ai_scenarios (
+            id TEXT PRIMARY KEY,
+            deck_id TEXT NOT NULL DEFAULT '',
+            mode TEXT NOT NULL DEFAULT '',
+            title TEXT NOT NULL DEFAULT '',
+            summary TEXT NOT NULL DEFAULT '',
+            topic_hint TEXT NOT NULL DEFAULT '',
+            difficulty TEXT NOT NULL DEFAULT 'intermediate',
+            style TEXT NOT NULL DEFAULT '',
+            question_count INTEGER NOT NULL DEFAULT 4,
+            tags_json TEXT NOT NULL DEFAULT '[]',
+            is_custom INTEGER NOT NULL DEFAULT 0,
+            times_used INTEGER NOT NULL DEFAULT 0,
+            times_completed INTEGER NOT NULL DEFAULT 0,
+            created_at REAL NOT NULL DEFAULT 0,
+            updated_at REAL NOT NULL DEFAULT 0
+        )
+        """
+    )
+    EnsureAiScenariosTableColumns(connection)
+    connection.execute(
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_ai_scenarios_unique
+        ON ai_scenarios(deck_id, mode, title, topic_hint, difficulty, style)
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS reading_materials (
+            id TEXT PRIMARY KEY,
+            scenario_id TEXT NOT NULL DEFAULT '',
+            deck_id TEXT NOT NULL DEFAULT '',
+            title TEXT NOT NULL DEFAULT '',
+            source_note TEXT NOT NULL DEFAULT '',
+            passage TEXT NOT NULL DEFAULT '',
+            new_words_json TEXT NOT NULL DEFAULT '[]',
+            created_at REAL NOT NULL DEFAULT 0,
+            updated_at REAL NOT NULL DEFAULT 0
+        )
+        """
+    )
+    EnsureReadingMaterialsTableColumns(connection)
+    connection.execute(
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_reading_materials_scenario
+        ON reading_materials(scenario_id)
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS conversation_sessions (
+            id TEXT PRIMARY KEY,
+            scenario_id TEXT NOT NULL DEFAULT '',
+            deck_id TEXT NOT NULL DEFAULT '',
+            messages_json TEXT NOT NULL DEFAULT '[]',
+            summary_json TEXT NOT NULL DEFAULT '{}',
+            status TEXT NOT NULL DEFAULT 'active',
+            created_at REAL NOT NULL DEFAULT 0,
+            updated_at REAL NOT NULL DEFAULT 0
+        )
+        """
+    )
+    EnsureConversationSessionsTableColumns(connection)
     connection.commit()
 
 
@@ -174,6 +274,36 @@ def EnsureGlobalCardsTableColumns(connection: sqlite3.Connection) -> None:
         if columnName in existingColumns:
             continue
         connection.execute(f"ALTER TABLE global_cards ADD COLUMN {columnName} {definition}")
+
+
+def EnsureAiScenariosTableColumns(connection: sqlite3.Connection) -> None:
+    existingColumns = {
+        row["name"] for row in connection.execute("PRAGMA table_info(ai_scenarios)").fetchall()
+    }
+    for columnName, definition in AiScenarioColumnDefinitions.items():
+        if columnName in existingColumns:
+            continue
+        connection.execute(f"ALTER TABLE ai_scenarios ADD COLUMN {columnName} {definition}")
+
+
+def EnsureReadingMaterialsTableColumns(connection: sqlite3.Connection) -> None:
+    existingColumns = {
+        row["name"] for row in connection.execute("PRAGMA table_info(reading_materials)").fetchall()
+    }
+    for columnName, definition in ReadingMaterialColumnDefinitions.items():
+        if columnName in existingColumns:
+            continue
+        connection.execute(f"ALTER TABLE reading_materials ADD COLUMN {columnName} {definition}")
+
+
+def EnsureConversationSessionsTableColumns(connection: sqlite3.Connection) -> None:
+    existingColumns = {
+        row["name"] for row in connection.execute("PRAGMA table_info(conversation_sessions)").fetchall()
+    }
+    for columnName, definition in ConversationSessionColumnDefinitions.items():
+        if columnName in existingColumns:
+            continue
+        connection.execute(f"ALTER TABLE conversation_sessions ADD COLUMN {columnName} {definition}")
 
 
 def NormalizeText(value: str) -> str:
@@ -209,6 +339,36 @@ def DecodeJsonStringList(raw: str) -> List[str]:
             continue
         normalizedItems.append(value)
     return normalizedItems
+
+
+def DecodeJsonObjectList(raw: str) -> List[Dict[str, Any]]:
+    if not raw:
+        return []
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(parsed, list):
+        return []
+
+    normalizedItems: List[Dict[str, Any]] = []
+    for item in parsed:
+        if not isinstance(item, dict):
+            continue
+        normalizedItems.append(dict(item))
+    return normalizedItems
+
+
+def DecodeJsonObject(raw: str) -> Dict[str, Any]:
+    if not raw:
+        return {}
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        return {}
+    if not isinstance(parsed, dict):
+        return {}
+    return dict(parsed)
 
 
 def NormalizeStringList(values: List[Any]) -> List[str]:
@@ -1070,6 +1230,384 @@ def DeckHasKanjiWordForm(
         ),
     ).fetchone()
     return row is not None
+
+
+def SerializeAiScenarioRow(row: sqlite3.Row) -> Dict[str, Any]:
+    return {
+        "id": row["id"],
+        "deck_id": (row["deck_id"] or "").strip(),
+        "mode": (row["mode"] or "").strip(),
+        "title": (row["title"] or "").strip(),
+        "summary": (row["summary"] or "").strip(),
+        "topic_hint": (row["topic_hint"] or "").strip(),
+        "difficulty": (row["difficulty"] or "").strip(),
+        "style": (row["style"] or "").strip(),
+        "question_count": int(row["question_count"] or 0),
+        "tags": DecodeJsonStringList(row["tags_json"]),
+        "is_custom": bool(row["is_custom"]),
+        "times_used": int(row["times_used"] or 0),
+        "times_completed": int(row["times_completed"] or 0),
+        "created_at": float(row["created_at"] or 0),
+        "updated_at": float(row["updated_at"] or 0),
+        "has_cached_material": bool(row["has_cached_material"]) if "has_cached_material" in row.keys() else False,
+        "reading_material_updated_at": float(row["reading_material_updated_at"] or 0)
+        if "reading_material_updated_at" in row.keys()
+        else 0.0,
+    }
+
+
+def GetAiScenario(connection: sqlite3.Connection, scenarioId: str) -> sqlite3.Row:
+    row = connection.execute(
+        """
+        SELECT
+            ai_scenarios.*,
+            CASE WHEN reading_materials.id IS NULL THEN 0 ELSE 1 END AS has_cached_material,
+            COALESCE(reading_materials.updated_at, 0) AS reading_material_updated_at
+        FROM ai_scenarios
+        LEFT JOIN reading_materials ON reading_materials.scenario_id = ai_scenarios.id
+        WHERE ai_scenarios.id = ?
+        LIMIT 1
+        """,
+        (scenarioId,),
+    ).fetchone()
+    if row is None:
+        raise RuntimeError("Scenario not found.")
+    return row
+
+
+def ListAiScenarios(connection: sqlite3.Connection, deckId: str, mode: str) -> List[Dict[str, Any]]:
+    rows = connection.execute(
+        """
+        SELECT
+            ai_scenarios.*,
+            CASE WHEN reading_materials.id IS NULL THEN 0 ELSE 1 END AS has_cached_material,
+            COALESCE(reading_materials.updated_at, 0) AS reading_material_updated_at
+        FROM ai_scenarios
+        LEFT JOIN reading_materials ON reading_materials.scenario_id = ai_scenarios.id
+        WHERE ai_scenarios.deck_id = ?
+          AND ai_scenarios.mode = ?
+        ORDER BY ai_scenarios.is_custom DESC, ai_scenarios.times_completed DESC,
+                 ai_scenarios.times_used ASC, ai_scenarios.updated_at DESC, ai_scenarios.created_at DESC
+        """,
+        (deckId, mode),
+    ).fetchall()
+    return [SerializeAiScenarioRow(row) for row in rows]
+
+
+def SaveAiScenario(
+    connection: sqlite3.Connection,
+    deckId: str,
+    mode: str,
+    title: str,
+    summary: str,
+    topicHint: str,
+    difficulty: str,
+    style: str,
+    questionCount: int,
+    tags: List[str],
+    isCustom: bool = False,
+) -> Dict[str, Any]:
+    normalizedDeckId = (deckId or "").strip()
+    normalizedMode = (mode or "").strip()
+    normalizedTitle = (title or "").strip()
+    normalizedSummary = (summary or "").strip()
+    normalizedTopicHint = (topicHint or "").strip()
+    normalizedDifficulty = (difficulty or "intermediate").strip() or "intermediate"
+    normalizedStyle = (style or "").strip()
+    normalizedQuestionCount = max(1, int(questionCount or 1))
+    normalizedTags = NormalizeStringList(tags or [])
+
+    if not normalizedDeckId or not normalizedMode or not normalizedTitle:
+        raise RuntimeError("deckId, mode, and title are required.")
+
+    existingRow = connection.execute(
+        """
+        SELECT id
+        FROM ai_scenarios
+        WHERE deck_id = ?
+          AND mode = ?
+          AND title = ?
+          AND topic_hint = ?
+          AND difficulty = ?
+          AND style = ?
+        LIMIT 1
+        """,
+        (
+            normalizedDeckId,
+            normalizedMode,
+            normalizedTitle,
+            normalizedTopicHint,
+            normalizedDifficulty,
+            normalizedStyle,
+        ),
+    ).fetchone()
+
+    now = time.time()
+    if existingRow is None:
+        scenarioId = str(uuid.uuid4())
+        connection.execute(
+            """
+            INSERT INTO ai_scenarios (
+                id, deck_id, mode, title, summary, topic_hint, difficulty, style,
+                question_count, tags_json, is_custom, times_used, times_completed,
+                created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?)
+            """,
+            (
+                scenarioId,
+                normalizedDeckId,
+                normalizedMode,
+                normalizedTitle,
+                normalizedSummary,
+                normalizedTopicHint,
+                normalizedDifficulty,
+                normalizedStyle,
+                normalizedQuestionCount,
+                json.dumps(normalizedTags, ensure_ascii=False),
+                int(bool(isCustom)),
+                now,
+                now,
+            ),
+        )
+    else:
+        scenarioId = existingRow["id"]
+        currentRow = GetAiScenario(connection, scenarioId)
+        mergedTags = NormalizeStringList(
+            DecodeJsonStringList(currentRow["tags_json"]) + normalizedTags
+        )
+        connection.execute(
+            """
+            UPDATE ai_scenarios
+            SET summary = ?,
+                question_count = ?,
+                tags_json = ?,
+                is_custom = CASE WHEN is_custom = 1 OR ? = 1 THEN 1 ELSE 0 END,
+                updated_at = ?
+            WHERE id = ?
+            """,
+            (
+                normalizedSummary or (currentRow["summary"] or "").strip(),
+                normalizedQuestionCount or int(currentRow["question_count"] or 0),
+                json.dumps(mergedTags, ensure_ascii=False),
+                int(bool(isCustom)),
+                now,
+                scenarioId,
+            ),
+        )
+
+    connection.commit()
+    return SerializeAiScenarioRow(GetAiScenario(connection, scenarioId))
+
+
+def IncrementAiScenarioUsage(connection: sqlite3.Connection, scenarioId: str) -> None:
+    connection.execute(
+        """
+        UPDATE ai_scenarios
+        SET times_used = times_used + 1,
+            updated_at = ?
+        WHERE id = ?
+        """,
+        (time.time(), scenarioId),
+    )
+    connection.commit()
+
+
+def IncrementAiScenarioCompletion(connection: sqlite3.Connection, scenarioId: str) -> None:
+    connection.execute(
+        """
+        UPDATE ai_scenarios
+        SET times_completed = times_completed + 1,
+            updated_at = ?
+        WHERE id = ?
+        """,
+        (time.time(), scenarioId),
+    )
+    connection.commit()
+
+
+def SerializeReadingMaterialRow(row: sqlite3.Row) -> Dict[str, Any]:
+    return {
+        "id": row["id"],
+        "scenario_id": (row["scenario_id"] or "").strip(),
+        "deck_id": (row["deck_id"] or "").strip(),
+        "title": (row["title"] or "").strip(),
+        "source_note": (row["source_note"] or "").strip(),
+        "passage": (row["passage"] or "").strip(),
+        "new_words": DecodeJsonObjectList(row["new_words_json"]),
+        "created_at": float(row["created_at"] or 0),
+        "updated_at": float(row["updated_at"] or 0),
+    }
+
+
+def GetReadingMaterialByScenarioId(
+    connection: sqlite3.Connection,
+    scenarioId: str,
+) -> Optional[Dict[str, Any]]:
+    row = connection.execute(
+        "SELECT * FROM reading_materials WHERE scenario_id = ? LIMIT 1",
+        (scenarioId,),
+    ).fetchone()
+    if row is None:
+        return None
+    return SerializeReadingMaterialRow(row)
+
+
+def SaveReadingMaterial(
+    connection: sqlite3.Connection,
+    scenarioId: str,
+    deckId: str,
+    title: str,
+    sourceNote: str,
+    passage: str,
+    newWords: List[Dict[str, Any]],
+) -> Dict[str, Any]:
+    normalizedScenarioId = (scenarioId or "").strip()
+    normalizedDeckId = (deckId or "").strip()
+    normalizedTitle = (title or "").strip()
+    normalizedSourceNote = (sourceNote or "").strip()
+    normalizedPassage = (passage or "").strip()
+    normalizedNewWords = [dict(item) for item in (newWords or []) if isinstance(item, dict)]
+
+    if not normalizedScenarioId or not normalizedDeckId or not normalizedPassage:
+        raise RuntimeError("scenarioId, deckId, and passage are required.")
+
+    existingRow = connection.execute(
+        "SELECT id FROM reading_materials WHERE scenario_id = ? LIMIT 1",
+        (normalizedScenarioId,),
+    ).fetchone()
+    now = time.time()
+    if existingRow is None:
+        materialId = str(uuid.uuid4())
+        connection.execute(
+            """
+            INSERT INTO reading_materials (
+                id, scenario_id, deck_id, title, source_note, passage,
+                new_words_json, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                materialId,
+                normalizedScenarioId,
+                normalizedDeckId,
+                normalizedTitle,
+                normalizedSourceNote,
+                normalizedPassage,
+                json.dumps(normalizedNewWords, ensure_ascii=False),
+                now,
+                now,
+            ),
+        )
+    else:
+        materialId = existingRow["id"]
+        connection.execute(
+            """
+            UPDATE reading_materials
+            SET title = ?,
+                source_note = ?,
+                passage = ?,
+                new_words_json = ?,
+                updated_at = ?
+            WHERE id = ?
+            """,
+            (
+                normalizedTitle,
+                normalizedSourceNote,
+                normalizedPassage,
+                json.dumps(normalizedNewWords, ensure_ascii=False),
+                now,
+                materialId,
+            ),
+        )
+
+    connection.commit()
+    row = connection.execute(
+        "SELECT * FROM reading_materials WHERE id = ? LIMIT 1",
+        (materialId,),
+    ).fetchone()
+    if row is None:
+        raise RuntimeError("Reading material was not saved.")
+    return SerializeReadingMaterialRow(row)
+
+
+def SerializeConversationSessionRow(row: sqlite3.Row) -> Dict[str, Any]:
+    return {
+        "id": row["id"],
+        "scenario_id": (row["scenario_id"] or "").strip(),
+        "deck_id": (row["deck_id"] or "").strip(),
+        "messages": DecodeJsonObjectList(row["messages_json"]),
+        "summary": DecodeJsonObject(row["summary_json"]),
+        "status": (row["status"] or "").strip(),
+        "created_at": float(row["created_at"] or 0),
+        "updated_at": float(row["updated_at"] or 0),
+    }
+
+
+def GetConversationSession(connection: sqlite3.Connection, sessionId: str) -> sqlite3.Row:
+    row = connection.execute(
+        "SELECT * FROM conversation_sessions WHERE id = ? LIMIT 1",
+        (sessionId,),
+    ).fetchone()
+    if row is None:
+        raise RuntimeError("Conversation session not found.")
+    return row
+
+
+def CreateConversationSession(
+    connection: sqlite3.Connection,
+    scenarioId: str,
+    deckId: str,
+    messages: List[Dict[str, Any]],
+) -> Dict[str, Any]:
+    now = time.time()
+    sessionId = str(uuid.uuid4())
+    connection.execute(
+        """
+        INSERT INTO conversation_sessions (
+            id, scenario_id, deck_id, messages_json, summary_json, status, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, '{}', 'active', ?, ?)
+        """,
+        (
+            sessionId,
+            (scenarioId or "").strip(),
+            (deckId or "").strip(),
+            json.dumps([dict(item) for item in (messages or []) if isinstance(item, dict)], ensure_ascii=False),
+            now,
+            now,
+        ),
+    )
+    connection.commit()
+    return SerializeConversationSessionRow(GetConversationSession(connection, sessionId))
+
+
+def UpdateConversationSession(
+    connection: sqlite3.Connection,
+    sessionId: str,
+    messages: List[Dict[str, Any]],
+    summary: Optional[Dict[str, Any]] = None,
+    status: Optional[str] = None,
+) -> Dict[str, Any]:
+    currentRow = GetConversationSession(connection, sessionId)
+    nextSummary = summary if summary is not None else DecodeJsonObject(currentRow["summary_json"])
+    nextStatus = (status or currentRow["status"] or "active").strip() or "active"
+    connection.execute(
+        """
+        UPDATE conversation_sessions
+        SET messages_json = ?,
+            summary_json = ?,
+            status = ?,
+            updated_at = ?
+        WHERE id = ?
+        """,
+        (
+            json.dumps([dict(item) for item in (messages or []) if isinstance(item, dict)], ensure_ascii=False),
+            json.dumps(nextSummary, ensure_ascii=False),
+            nextStatus,
+            time.time(),
+            sessionId,
+        ),
+    )
+    connection.commit()
+    return SerializeConversationSessionRow(GetConversationSession(connection, sessionId))
 
 
 def GetDashboardRows(connection: sqlite3.Connection) -> List[sqlite3.Row]:

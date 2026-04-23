@@ -8,7 +8,9 @@ import {
   GraduationCap,
   LayoutDashboard,
   Library,
+  MessageSquareText,
   PenTool,
+  ScrollText,
   Upload,
 } from 'lucide-react';
 
@@ -113,24 +115,58 @@ export function Layout({ children }: { children: React.ReactNode }) {
                 </div>
                 <Link
                   to={`/deck/${currentDeck.id}`}
-                  className="flex items-center gap-3 px-4 py-2 rounded-lg text-gray-700 hover:bg-gray-50"
+                  className={`flex items-center gap-3 px-4 py-2 rounded-lg transition-colors ${
+                    isRouteActive(location.pathname, `/deck/${currentDeck.id}`)
+                      ? 'bg-blue-50 text-blue-700'
+                      : 'text-gray-700 hover:bg-gray-50'
+                  }`}
                 >
                   <Folder className="w-5 h-5" />
                   <span>Deck Operations</span>
                 </Link>
                 <Link
                   to={`/revision/${currentDeck.id}`}
-                  className="flex items-center gap-3 px-4 py-2 rounded-lg text-gray-700 hover:bg-gray-50"
+                  className={`flex items-center gap-3 px-4 py-2 rounded-lg transition-colors ${
+                    isRouteActive(location.pathname, `/revision/${currentDeck.id}`)
+                      ? 'bg-blue-50 text-blue-700'
+                      : 'text-gray-700 hover:bg-gray-50'
+                  }`}
                 >
                   <GraduationCap className="w-5 h-5" />
                   <span>Revision</span>
                 </Link>
                 <Link
                   to={`/practice/${currentDeck.id}`}
-                  className="flex items-center gap-3 px-4 py-2 rounded-lg text-gray-700 hover:bg-gray-50"
+                  className={`flex items-center gap-3 px-4 py-2 rounded-lg transition-colors ${
+                    isRouteActive(location.pathname, `/practice/${currentDeck.id}`)
+                      ? 'bg-blue-50 text-blue-700'
+                      : 'text-gray-700 hover:bg-gray-50'
+                  }`}
                 >
                   <Gamepad2 className="w-5 h-5" />
                   <span>Practice</span>
+                </Link>
+                <Link
+                  to={`/reading/${currentDeck.id}`}
+                  className={`flex items-center gap-3 px-4 py-2 rounded-lg transition-colors ${
+                    isRouteActive(location.pathname, `/reading/${currentDeck.id}`)
+                      ? 'bg-blue-50 text-blue-700'
+                      : 'text-gray-700 hover:bg-gray-50'
+                  }`}
+                >
+                  <ScrollText className="w-5 h-5" />
+                  <span>Reading</span>
+                </Link>
+                <Link
+                  to={`/conversation/${currentDeck.id}`}
+                  className={`flex items-center gap-3 px-4 py-2 rounded-lg transition-colors ${
+                    isRouteActive(location.pathname, `/conversation/${currentDeck.id}`)
+                      ? 'bg-blue-50 text-blue-700'
+                      : 'text-gray-700 hover:bg-gray-50'
+                  }`}
+                >
+                  <MessageSquareText className="w-5 h-5" />
+                  <span>Conversation</span>
                 </Link>
               </div>
             )}

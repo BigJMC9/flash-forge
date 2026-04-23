@@ -266,6 +266,85 @@ export interface ReadingComprehensionResponse {
   options_used: PracticeRoundOptions;
 }
 
+export type ScenarioMode = 'reading' | 'conversation';
+
+export interface AiScenarioRow {
+  id: string;
+  deck_id: string;
+  mode: ScenarioMode | string;
+  title: string;
+  summary: string;
+  topic_hint: string;
+  difficulty: 'beginner' | 'intermediate' | 'advanced' | string;
+  style: string;
+  question_count: number;
+  tags: string[];
+  is_custom: boolean;
+  times_used: number;
+  times_completed: number;
+  created_at: number;
+  updated_at: number;
+  has_cached_material: boolean;
+  reading_material_updated_at: number;
+}
+
+export interface ScenarioListResponse {
+  deck_id: string;
+  scenarios: AiScenarioRow[];
+  generated_count?: number;
+  should_generate_more: boolean;
+  recommended_reason: string;
+}
+
+export interface ReadingSessionResponse {
+  deck_id: string;
+  scenario: AiScenarioRow;
+  title: string;
+  source_note: string;
+  passage: string;
+  questions: ReadingComprehensionQuestion[];
+  new_words: ReadingComprehensionWord[];
+  cached_material: boolean;
+}
+
+export interface ConversationMessage {
+  role: 'assistant' | 'user' | string;
+  content: string;
+  timestamp?: number;
+}
+
+export interface ConversationStartResponse {
+  deck_id: string;
+  scenario: AiScenarioRow;
+  session_id: string;
+  partner_name: string;
+  messages: ConversationMessage[];
+}
+
+export interface ConversationSendResponse {
+  session_id: string;
+  messages: ConversationMessage[];
+  assistant_message: string;
+  should_wrap_up: boolean;
+}
+
+export interface ConversationFeedback {
+  score_percent: number;
+  summary: string;
+  correct_points: string[];
+  incorrect_points: string[];
+  strengths: string[];
+  weaknesses: string[];
+  improvements: string[];
+}
+
+export interface ConversationCompleteResponse {
+  session_id: string;
+  feedback: ConversationFeedback;
+  messages: ConversationMessage[];
+  status: string;
+}
+
 export interface ScanPreviewRow {
   visible_text: string;
   source_text: string;

@@ -40,6 +40,7 @@ from AnkiDeckBuilder.DatabaseService import (
     AddGlobalCard,
     CountCardsInDeck,
     CountGlobalCards,
+    CreateConversationSession,
     CreateCollection,
     CreateDeck,
     DeckHasCandidate,
@@ -48,18 +49,27 @@ from AnkiDeckBuilder.DatabaseService import (
     DeleteCardsByIds,
     DeleteGlobalCardsByIds,
     GetDashboardRows,
+    GetAiScenario,
+    GetConversationSession,
     GetDeckCardCounts,
     GetDeckCards,
+    GetReadingMaterialByScenarioId,
     GetTotalCardCount,
     GetTotalDeckCount,
+    IncrementAiScenarioCompletion,
+    IncrementAiScenarioUsage,
     ImportDeckCardsToGlobal,
     ImportGlobalCardsToDeck,
+    ListAiScenarios,
     ListCollections,
     ListDecks,
     ListGlobalCards,
     OpenDatabaseConnection,
     RenameCollection,
     RenameDeck,
+    SaveAiScenario,
+    SaveReadingMaterial,
+    UpdateConversationSession,
     UpdateCardContent,
     UpdateCardField,
     UpdateCardMedia,
@@ -83,7 +93,13 @@ from AnkiDeckBuilder.JamdictService import (
 )
 from AnkiDeckBuilder.OpenAiService import (
     ExtractCardsFromImages,
+    GenerateConversationFeedback,
+    GenerateConversationOpening,
+    GenerateConversationReply,
+    GenerateReadingMaterial,
+    GenerateReadingQuestionsFromPassage,
     GenerateReadingComprehensionPackage,
+    GenerateScenarioSuggestions,
     GetOpenAiClient,
 )
 from AnkiDeckBuilder.Pages import (
@@ -112,7 +128,6 @@ PRACTICE_MODE_OPTIONS = [
     {"key": "word_class_sort", "label": "Word Class Bucket Sort"},
     {"key": "adjective_conjugation", "label": "Adjective Conjugation Builder"},
     {"key": "verb_conjugation", "label": "Verb Conjugation Builder"},
-    {"key": "reading_comprehension", "label": "Reading Comprehension"},
 ]
 PRACTICE_VERB_SORT_BUCKET_ORDER = ["ichidan", "godan", "suru"]
 PRACTICE_ADJECTIVE_SORT_BUCKET_ORDER = ["i_adj", "na_adj"]
@@ -1910,6 +1925,459 @@ def build_reading_topic_hint(deck_rows: List[Any], explicit_topic: str) -> str:
     return ", ".join(topic_tags)
 
 
+def build_learning_vocabulary_context(
+    deck_id: str,
+) -> Tuple[sqlite3.Connection, List[Any], List[Any], List[Dict[str, str]], List[Dict[str, str]]]:
+    connection = get_connection()
+    deck_rows = list(GetDeckCards(connection, deck_id)) if deck_id else []
+    global_rows = list(ListGlobalCards(connection))
+    preferred_vocabulary = build_vocabulary_seed_from_rows(deck_rows, "deck", limit=48)
+    support_vocabulary = build_vocabulary_seed_from_rows(global_rows, "global", limit=96)
+
+    if not preferred_vocabulary:
+        preferred_vocabulary = support_vocabulary[:48]
+
+    if not preferred_vocabulary and not support_vocabulary:
+        raise RuntimeError("No deck or global cards are available yet.")
+
+    return connection, deck_rows, global_rows, preferred_vocabulary, support_vocabulary
+
+
+def build_scenario_generation_meta(scenarios: List[Dict[str, Any]]) -> Dict[str, Any]:
+    scenario_count = len(scenarios)
+    completed_count = sum(1 for scenario in scenarios if int(scenario.get("times_completed", 0)) > 0)
+
+    if scenario_count == 0:
+        return {
+            "should_generate_more": True,
+            "recommended_reason": "No cached scenarios are available yet.",
+        }
+    if scenario_count < 4:
+        return {
+            "should_generate_more": True,
+            "recommended_reason": "Only a small scenario pool is cached for this deck.",
+        }
+    if completed_count >= max(2, scenario_count // 2):
+        return {
+            "should_generate_more": True,
+            "recommended_reason": "You have completed enough scenarios that fresh suggestions would make sense.",
+        }
+    return {
+        "should_generate_more": False,
+        "recommended_reason": "",
+    }
+
+
+def build_scenario_prompt_payload(scenario: Any) -> Dict[str, Any]:
+    if isinstance(scenario, sqlite3.Row):
+        tags = DecodeJsonStringList(scenario["tags_json"])
+        return {
+            "id": (scenario["id"] or "").strip(),
+            "title": (scenario["title"] or "").strip(),
+            "summary": (scenario["summary"] or "").strip(),
+            "topic_hint": (scenario["topic_hint"] or "").strip(),
+            "difficulty": (scenario["difficulty"] or "").strip(),
+            "style": (scenario["style"] or "").strip(),
+            "question_count": int(scenario["question_count"] or 0),
+            "tags": tags,
+            "is_custom": bool(scenario["is_custom"]),
+        }
+
+    return {
+        "id": normalize_text(scenario.get("id", "")),
+        "title": normalize_text(scenario.get("title", "")),
+        "summary": normalize_text(scenario.get("summary", "")),
+        "topic_hint": normalize_text(scenario.get("topic_hint", "")),
+        "difficulty": normalize_text(scenario.get("difficulty", "intermediate")) or "intermediate",
+        "style": normalize_text(scenario.get("style", "")),
+        "question_count": normalize_question_count(scenario.get("question_count", 4), default=4),
+        "tags": normalize_string_list(scenario.get("tags", [])),
+        "is_custom": bool(scenario.get("is_custom", False)),
+    }
+
+
+def build_custom_scenario_defaults(
+    deck_rows: List[Any],
+    explicit_topic: str,
+    fallback_title: str,
+) -> Tuple[str, str]:
+    topic_hint = build_reading_topic_hint(deck_rows, explicit_topic)
+    title = normalize_text(fallback_title) or topic_hint or "Custom Scenario"
+    return title, topic_hint or title
+
+
+def append_conversation_message(
+    messages: List[Dict[str, Any]],
+    role: str,
+    content: str,
+) -> List[Dict[str, Any]]:
+    next_messages = list(messages)
+    next_messages.append(
+        {
+            "role": normalize_text(role),
+            "content": normalize_text(content),
+            "timestamp": time.time(),
+        }
+    )
+    return next_messages
+
+
+def action_list_reading_scenarios(payload: Dict[str, Any]) -> Dict[str, Any]:
+    deck_id = normalize_text(payload.get("deck_id", ""))
+    if not deck_id:
+        raise RuntimeError("deck_id is required.")
+
+    scenarios = ListAiScenarios(get_connection(), deck_id, "reading")
+    meta = build_scenario_generation_meta(scenarios)
+    return {
+        "deck_id": deck_id,
+        "scenarios": scenarios,
+        **meta,
+    }
+
+
+def action_generate_reading_scenarios(payload: Dict[str, Any]) -> Dict[str, Any]:
+    deck_id = normalize_text(payload.get("deck_id", ""))
+    if not deck_id:
+        raise RuntimeError("deck_id is required.")
+
+    count = max(3, min(8, normalize_question_count(payload.get("count", 6), default=6)))
+    connection, _, _, preferred_vocabulary, support_vocabulary = build_learning_vocabulary_context(deck_id)
+    existing_scenarios = ListAiScenarios(connection, deck_id, "reading")
+    client = GetOpenAiClient()
+    suggestions = GenerateScenarioSuggestions(
+        client,
+        DefaultModel,
+        preferred_vocabulary,
+        support_vocabulary,
+        "reading",
+        existingTitles=[scenario["title"] for scenario in existing_scenarios],
+        count=count,
+    )
+
+    for suggestion in suggestions:
+        SaveAiScenario(
+            connection,
+            deck_id,
+            "reading",
+            suggestion["title"],
+            suggestion["summary"],
+            suggestion.get("topic_hint", suggestion["title"]),
+            suggestion.get("difficulty", DEFAULT_READING_COMPREHENSION_LEVEL),
+            suggestion.get("style", DEFAULT_READING_COMPREHENSION_SOURCE),
+            normalize_question_count(suggestion.get("question_count", 4), default=4),
+            suggestion.get("tags", []),
+            isCustom=False,
+        )
+
+    scenarios = ListAiScenarios(connection, deck_id, "reading")
+    meta = build_scenario_generation_meta(scenarios)
+    return {
+        "deck_id": deck_id,
+        "generated_count": len(suggestions),
+        "scenarios": scenarios,
+        **meta,
+    }
+
+
+def action_create_reading_scenario(payload: Dict[str, Any]) -> Dict[str, Any]:
+    deck_id = normalize_text(payload.get("deck_id", ""))
+    if not deck_id:
+        raise RuntimeError("deck_id is required.")
+
+    _, deck_rows, _, _, _ = build_learning_vocabulary_context(deck_id)
+    options = normalize_practice_options("reading_comprehension", payload.get("options", {}))
+    explicit_title = normalize_text(payload.get("title", ""))
+    explicit_summary = normalize_text(payload.get("summary", ""))
+    title, topic_hint = build_custom_scenario_defaults(deck_rows, options.get("reading_topic", ""), explicit_title)
+    summary = explicit_summary or f"{title} focused on deck-relevant vocabulary."
+
+    scenario = SaveAiScenario(
+        get_connection(),
+        deck_id,
+        "reading",
+        title,
+        summary,
+        topic_hint,
+        options.get("reading_level", DEFAULT_READING_COMPREHENSION_LEVEL),
+        options.get("reading_source", DEFAULT_READING_COMPREHENSION_SOURCE),
+        options.get("reading_question_count", 4),
+        normalize_string_list(payload.get("tags", [])),
+        isCustom=True,
+    )
+    return {"scenario": scenario}
+
+
+def action_start_reading_session(payload: Dict[str, Any]) -> Dict[str, Any]:
+    deck_id = normalize_text(payload.get("deck_id", ""))
+    scenario_id = normalize_text(payload.get("scenario_id", ""))
+    refresh_material = bool(payload.get("refresh_material", False))
+
+    if not deck_id or not scenario_id:
+        raise RuntimeError("deck_id and scenario_id are required.")
+
+    connection, _, _, preferred_vocabulary, support_vocabulary = build_learning_vocabulary_context(deck_id)
+    scenario_row = GetAiScenario(connection, scenario_id)
+    if normalize_text(scenario_row["deck_id"]) != deck_id:
+        raise RuntimeError("Scenario does not belong to the selected deck.")
+    scenario = build_scenario_prompt_payload(scenario_row)
+
+    material = None if refresh_material else GetReadingMaterialByScenarioId(connection, scenario_id)
+    used_cached_material = material is not None
+    client = GetOpenAiClient()
+    if material is None:
+        generated_material = GenerateReadingMaterial(
+            client,
+            DefaultModel,
+            preferred_vocabulary,
+            support_vocabulary,
+            scenario,
+        )
+        material = SaveReadingMaterial(
+            connection,
+            scenario_id,
+            deck_id,
+            generated_material["title"],
+            generated_material["source_note"],
+            generated_material["passage"],
+            generated_material["new_words"],
+        )
+
+    questions = GenerateReadingQuestionsFromPassage(
+        client,
+        DefaultModel,
+        material["title"],
+        material["passage"],
+        questionCount=scenario.get("question_count", 4),
+        variationHint=f"{scenario_id}:{time.time()}",
+    )
+    IncrementAiScenarioUsage(connection, scenario_id)
+
+    return {
+        "deck_id": deck_id,
+        "scenario": scenario,
+        "title": material["title"],
+        "source_note": material["source_note"],
+        "passage": material["passage"],
+        "questions": questions,
+        "new_words": material["new_words"],
+        "cached_material": used_cached_material,
+    }
+
+
+def action_complete_reading_session(payload: Dict[str, Any]) -> Dict[str, Any]:
+    scenario_id = normalize_text(payload.get("scenario_id", ""))
+    if not scenario_id:
+        raise RuntimeError("scenario_id is required.")
+
+    connection = get_connection()
+    IncrementAiScenarioCompletion(connection, scenario_id)
+    return {
+        "scenario": build_scenario_prompt_payload(GetAiScenario(connection, scenario_id)),
+    }
+
+
+def action_list_conversation_scenarios(payload: Dict[str, Any]) -> Dict[str, Any]:
+    deck_id = normalize_text(payload.get("deck_id", ""))
+    if not deck_id:
+        raise RuntimeError("deck_id is required.")
+
+    scenarios = ListAiScenarios(get_connection(), deck_id, "conversation")
+    meta = build_scenario_generation_meta(scenarios)
+    return {
+        "deck_id": deck_id,
+        "scenarios": scenarios,
+        **meta,
+    }
+
+
+def action_generate_conversation_scenarios(payload: Dict[str, Any]) -> Dict[str, Any]:
+    deck_id = normalize_text(payload.get("deck_id", ""))
+    if not deck_id:
+        raise RuntimeError("deck_id is required.")
+
+    count = max(3, min(8, normalize_question_count(payload.get("count", 6), default=6)))
+    connection, _, _, preferred_vocabulary, support_vocabulary = build_learning_vocabulary_context(deck_id)
+    existing_scenarios = ListAiScenarios(connection, deck_id, "conversation")
+    client = GetOpenAiClient()
+    suggestions = GenerateScenarioSuggestions(
+        client,
+        DefaultModel,
+        preferred_vocabulary,
+        support_vocabulary,
+        "conversation",
+        existingTitles=[scenario["title"] for scenario in existing_scenarios],
+        count=count,
+    )
+
+    for suggestion in suggestions:
+        SaveAiScenario(
+            connection,
+            deck_id,
+            "conversation",
+            suggestion["title"],
+            suggestion["summary"],
+            suggestion.get("topic_hint", suggestion["title"]),
+            suggestion.get("difficulty", DEFAULT_READING_COMPREHENSION_LEVEL),
+            suggestion.get("style", "casual"),
+            0,
+            suggestion.get("tags", []),
+            isCustom=False,
+        )
+
+    scenarios = ListAiScenarios(connection, deck_id, "conversation")
+    meta = build_scenario_generation_meta(scenarios)
+    return {
+        "deck_id": deck_id,
+        "generated_count": len(suggestions),
+        "scenarios": scenarios,
+        **meta,
+    }
+
+
+def action_create_conversation_scenario(payload: Dict[str, Any]) -> Dict[str, Any]:
+    deck_id = normalize_text(payload.get("deck_id", ""))
+    if not deck_id:
+        raise RuntimeError("deck_id is required.")
+
+    _, deck_rows, _, _, _ = build_learning_vocabulary_context(deck_id)
+    explicit_title = normalize_text(payload.get("title", ""))
+    explicit_summary = normalize_text(payload.get("summary", ""))
+    topic_hint = normalize_text(payload.get("topic_hint", ""))
+    difficulty = normalize_text(payload.get("difficulty", DEFAULT_READING_COMPREHENSION_LEVEL))
+    style = normalize_text(payload.get("style", "casual")) or "casual"
+    title, normalized_topic_hint = build_custom_scenario_defaults(deck_rows, topic_hint, explicit_title)
+    summary = explicit_summary or f"{title} conversation focused on deck-relevant vocabulary."
+
+    scenario = SaveAiScenario(
+        get_connection(),
+        deck_id,
+        "conversation",
+        title,
+        summary,
+        normalized_topic_hint,
+        difficulty,
+        style,
+        0,
+        normalize_string_list(payload.get("tags", [])),
+        isCustom=True,
+    )
+    return {"scenario": scenario}
+
+
+def action_start_conversation_session(payload: Dict[str, Any]) -> Dict[str, Any]:
+    deck_id = normalize_text(payload.get("deck_id", ""))
+    scenario_id = normalize_text(payload.get("scenario_id", ""))
+    if not deck_id or not scenario_id:
+        raise RuntimeError("deck_id and scenario_id are required.")
+
+    connection, _, _, preferred_vocabulary, support_vocabulary = build_learning_vocabulary_context(deck_id)
+    scenario_row = GetAiScenario(connection, scenario_id)
+    if normalize_text(scenario_row["deck_id"]) != deck_id:
+        raise RuntimeError("Scenario does not belong to the selected deck.")
+    scenario = build_scenario_prompt_payload(scenario_row)
+
+    client = GetOpenAiClient()
+    opening = GenerateConversationOpening(
+        client,
+        DefaultModel,
+        preferred_vocabulary,
+        support_vocabulary,
+        scenario,
+    )
+    messages = append_conversation_message([], "assistant", opening["opening_message"])
+    session = CreateConversationSession(connection, scenario_id, deck_id, messages)
+    IncrementAiScenarioUsage(connection, scenario_id)
+
+    return {
+        "deck_id": deck_id,
+        "scenario": scenario,
+        "session_id": session["id"],
+        "partner_name": opening["partner_name"],
+        "messages": session["messages"],
+    }
+
+
+def action_send_conversation_message(payload: Dict[str, Any]) -> Dict[str, Any]:
+    session_id = normalize_text(payload.get("session_id", ""))
+    user_message = normalize_text(payload.get("message", ""))
+    if not session_id or not user_message:
+        raise RuntimeError("session_id and message are required.")
+
+    connection = get_connection()
+    session_row = GetConversationSession(connection, session_id)
+    if normalize_text(session_row["status"]) != "active":
+        raise RuntimeError("Conversation session is already completed.")
+
+    scenario_row = GetAiScenario(connection, normalize_text(session_row["scenario_id"]))
+    scenario = build_scenario_prompt_payload(scenario_row)
+    _, _, _, preferred_vocabulary, support_vocabulary = build_learning_vocabulary_context(
+        normalize_text(session_row["deck_id"])
+    )
+    current_messages = json.loads(session_row["messages_json"] or "[]")
+    if not isinstance(current_messages, list):
+        current_messages = []
+
+    client = GetOpenAiClient()
+    reply = GenerateConversationReply(
+        client,
+        DefaultModel,
+        preferred_vocabulary,
+        support_vocabulary,
+        scenario,
+        current_messages,
+        user_message,
+    )
+
+    next_messages = append_conversation_message(current_messages, "user", user_message)
+    next_messages = append_conversation_message(next_messages, "assistant", reply["reply"])
+    session = UpdateConversationSession(connection, session_id, next_messages)
+
+    return {
+        "session_id": session_id,
+        "messages": session["messages"],
+        "assistant_message": reply["reply"],
+        "should_wrap_up": bool(reply["should_wrap_up"]),
+    }
+
+
+def action_complete_conversation_session(payload: Dict[str, Any]) -> Dict[str, Any]:
+    session_id = normalize_text(payload.get("session_id", ""))
+    if not session_id:
+        raise RuntimeError("session_id is required.")
+
+    connection = get_connection()
+    session_row = GetConversationSession(connection, session_id)
+    scenario_row = GetAiScenario(connection, normalize_text(session_row["scenario_id"]))
+    scenario = build_scenario_prompt_payload(scenario_row)
+    history = json.loads(session_row["messages_json"] or "[]")
+    if not isinstance(history, list):
+        history = []
+
+    client = GetOpenAiClient()
+    feedback = GenerateConversationFeedback(
+        client,
+        DefaultModel,
+        scenario,
+        history,
+    )
+    session = UpdateConversationSession(
+        connection,
+        session_id,
+        history,
+        summary=feedback,
+        status="completed",
+    )
+    IncrementAiScenarioCompletion(connection, scenario["id"])
+
+    return {
+        "session_id": session_id,
+        "feedback": feedback,
+        "messages": session["messages"],
+        "status": session["status"],
+    }
+
+
 def action_generate_reading_comprehension(payload: Dict[str, Any]) -> Dict[str, Any]:
     deck_id = normalize_text(payload.get("deck_id", ""))
     if not deck_id:
@@ -2097,6 +2565,17 @@ ACTIONS = {
     "export_deck": action_export_deck,
     "get_revision_cards": action_get_revision_cards,
     "get_practice_round": action_get_practice_round,
+    "list_reading_scenarios": action_list_reading_scenarios,
+    "generate_reading_scenarios": action_generate_reading_scenarios,
+    "create_reading_scenario": action_create_reading_scenario,
+    "start_reading_session": action_start_reading_session,
+    "complete_reading_session": action_complete_reading_session,
+    "list_conversation_scenarios": action_list_conversation_scenarios,
+    "generate_conversation_scenarios": action_generate_conversation_scenarios,
+    "create_conversation_scenario": action_create_conversation_scenario,
+    "start_conversation_session": action_start_conversation_session,
+    "send_conversation_message": action_send_conversation_message,
+    "complete_conversation_session": action_complete_conversation_session,
     "generate_reading_comprehension": action_generate_reading_comprehension,
     "add_reading_new_word": action_add_reading_new_word,
     "get_counts": action_get_counts,

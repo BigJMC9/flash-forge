@@ -1,0 +1,713 @@
+import { FormEvent, useEffect, useState } from 'react';
+import { useParams } from 'react-router';
+import {
+  Loader2,
+  MessageSquareText,
+  Plus,
+  SendHorizonal,
+  Sparkles,
+  Square,
+} from 'lucide-react';
+import { useApp } from '../contexts/AppContext';
+import { callAction, errorMessage } from '../lib/backend';
+import type {
+  AiScenarioRow,
+  ConversationCompleteResponse,
+  ConversationFeedback,
+  ConversationMessage,
+  ConversationSendResponse,
+  ConversationStartResponse,
+  ScenarioListResponse,
+} from '../types';
+
+const DIFFICULTY_OPTIONS = [
+  { key: 'beginner', label: 'Beginner' },
+  { key: 'intermediate', label: 'Intermediate' },
+  { key: 'advanced', label: 'Advanced' },
+];
+
+const STYLE_OPTIONS = [
+  { key: 'casual', label: 'Casual' },
+  { key: 'polite', label: 'Polite' },
+  { key: 'practical', label: 'Practical' },
+  { key: 'interview', label: 'Interview' },
+];
+
+function scenarioCardTone(active: boolean): string {
+  if (active) {
+    return 'border-sky-500 bg-sky-50 shadow-sm';
+  }
+  return 'border-gray-200 bg-white hover:border-gray-300';
+}
+
+export function Conversation() {
+  const { deckId = '' } = useParams<{ deckId: string }>();
+  const { decks, setCurrentDeck, setStatus } = useApp();
+
+  const [scenarios, setScenarios] = useState<AiScenarioRow[]>([]);
+  const [selectedScenarioId, setSelectedScenarioId] = useState('');
+  const [isLoadingScenarios, setIsLoadingScenarios] = useState(false);
+  const [isGeneratingScenarios, setIsGeneratingScenarios] = useState(false);
+  const [isCreatingScenario, setIsCreatingScenario] = useState(false);
+  const [isStartingSession, setIsStartingSession] = useState(false);
+  const [isSendingMessage, setIsSendingMessage] = useState(false);
+  const [isCompletingSession, setIsCompletingSession] = useState(false);
+  const [shouldGenerateMore, setShouldGenerateMore] = useState(false);
+  const [recommendedReason, setRecommendedReason] = useState('');
+
+  const [customTitle, setCustomTitle] = useState('');
+  const [customSummary, setCustomSummary] = useState('');
+  const [topicHint, setTopicHint] = useState('');
+  const [difficulty, setDifficulty] = useState('intermediate');
+  const [style, setStyle] = useState('casual');
+
+  const [sessionId, setSessionId] = useState('');
+  const [partnerName, setPartnerName] = useState('AI Partner');
+  const [activeScenario, setActiveScenario] = useState<AiScenarioRow | null>(null);
+  const [messages, setMessages] = useState<ConversationMessage[]>([]);
+  const [messageInput, setMessageInput] = useState('');
+  const [shouldWrapUp, setShouldWrapUp] = useState(false);
+  const [feedback, setFeedback] = useState<ConversationFeedback | null>(null);
+
+  const deck = decks.find((item) => item.id === deckId) ?? null;
+  const selectedScenario =
+    scenarios.find((scenario) => scenario.id === selectedScenarioId) ?? null;
+
+  const loadScenarios = async () => {
+    if (!deckId) {
+      setScenarios([]);
+      setSelectedScenarioId('');
+      return;
+    }
+
+    try {
+      setIsLoadingScenarios(true);
+      const response = await callAction<ScenarioListResponse>(
+        'list_conversation_scenarios',
+        { deck_id: deckId },
+      );
+      setScenarios(response.scenarios ?? []);
+      setShouldGenerateMore(Boolean(response.should_generate_more));
+      setRecommendedReason(response.recommended_reason ?? '');
+      setSelectedScenarioId((previous) => {
+        if (previous && response.scenarios.some((item) => item.id === previous)) {
+          return previous;
+        }
+        return response.scenarios[0]?.id ?? '';
+      });
+    } catch (error) {
+      setStatus({
+        type: 'error',
+        message: errorMessage(error),
+      });
+    } finally {
+      setIsLoadingScenarios(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!deckId) {
+      return;
+    }
+    setCurrentDeck(deckId);
+    void loadScenarios();
+  }, [deckId, setCurrentDeck]);
+
+  const generateSuggestedScenarios = async () => {
+    if (!deckId) {
+      return;
+    }
+
+    try {
+      setIsGeneratingScenarios(true);
+      const response = await callAction<ScenarioListResponse>(
+        'generate_conversation_scenarios',
+        {
+          deck_id: deckId,
+          count: 6,
+        },
+      );
+      setScenarios(response.scenarios ?? []);
+      setShouldGenerateMore(Boolean(response.should_generate_more));
+      setRecommendedReason(response.recommended_reason ?? '');
+      setSelectedScenarioId((response.scenarios ?? [])[0]?.id ?? '');
+      setStatus({
+        type: 'success',
+        message: `Generated ${response.generated_count ?? 0} conversation scenario suggestion(s).`,
+      });
+    } catch (error) {
+      setStatus({
+        type: 'error',
+        message: errorMessage(error),
+      });
+    } finally {
+      setIsGeneratingScenarios(false);
+    }
+  };
+
+  const createScenario = async () => {
+    if (!deckId) {
+      return;
+    }
+
+    try {
+      setIsCreatingScenario(true);
+      const response = await callAction<{ scenario: AiScenarioRow }>(
+        'create_conversation_scenario',
+        {
+          deck_id: deckId,
+          title: customTitle.trim(),
+          summary: customSummary.trim(),
+          topic_hint: topicHint.trim(),
+          difficulty,
+          style,
+        },
+      );
+      setCustomTitle('');
+      setCustomSummary('');
+      setTopicHint('');
+      await loadScenarios();
+      setSelectedScenarioId(response.scenario.id);
+      setStatus({
+        type: 'success',
+        message: `Added conversation scenario "${response.scenario.title}".`,
+      });
+    } catch (error) {
+      setStatus({
+        type: 'error',
+        message: errorMessage(error),
+      });
+    } finally {
+      setIsCreatingScenario(false);
+    }
+  };
+
+  const startConversation = async () => {
+    const scenarioId = selectedScenario?.id;
+    if (!deckId || !scenarioId) {
+      return;
+    }
+
+    try {
+      setIsStartingSession(true);
+      const response = await callAction<ConversationStartResponse>(
+        'start_conversation_session',
+        {
+          deck_id: deckId,
+          scenario_id: scenarioId,
+        },
+      );
+      setSessionId(response.session_id);
+      setPartnerName(response.partner_name);
+      setActiveScenario(response.scenario);
+      setMessages(response.messages ?? []);
+      setMessageInput('');
+      setShouldWrapUp(false);
+      setFeedback(null);
+      setSelectedScenarioId(response.scenario.id);
+      await loadScenarios();
+      setStatus({
+        type: 'success',
+        message: `Started conversation for "${response.scenario.title}".`,
+      });
+    } catch (error) {
+      setStatus({
+        type: 'error',
+        message: errorMessage(error),
+      });
+    } finally {
+      setIsStartingSession(false);
+    }
+  };
+
+  const sendMessage = async () => {
+    if (!sessionId || !messageInput.trim()) {
+      return;
+    }
+
+    try {
+      setIsSendingMessage(true);
+      const response = await callAction<ConversationSendResponse>(
+        'send_conversation_message',
+        {
+          session_id: sessionId,
+          message: messageInput.trim(),
+        },
+      );
+      setMessages(response.messages ?? []);
+      setShouldWrapUp(Boolean(response.should_wrap_up));
+      setMessageInput('');
+    } catch (error) {
+      setStatus({
+        type: 'error',
+        message: errorMessage(error),
+      });
+    } finally {
+      setIsSendingMessage(false);
+    }
+  };
+
+  const completeConversation = async () => {
+    if (!sessionId) {
+      return;
+    }
+
+    try {
+      setIsCompletingSession(true);
+      const response = await callAction<ConversationCompleteResponse>(
+        'complete_conversation_session',
+        {
+          session_id: sessionId,
+        },
+      );
+      setMessages(response.messages ?? []);
+      setFeedback(response.feedback);
+      setShouldWrapUp(false);
+      await loadScenarios();
+      setStatus({
+        type: 'success',
+        message: 'Conversation review is ready.',
+      });
+    } catch (error) {
+      setStatus({
+        type: 'error',
+        message: errorMessage(error),
+      });
+    } finally {
+      setIsCompletingSession(false);
+    }
+  };
+
+  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    void sendMessage();
+  };
+
+  if (!deck) {
+    return (
+      <div className="max-w-4xl mx-auto">
+        <div className="bg-white rounded-lg p-8 border border-gray-200 text-center text-gray-500">
+          Deck not found.
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="max-w-7xl mx-auto">
+      <h2 className="text-2xl font-semibold mb-2">Conversation: {deck.name}</h2>
+      <p className="text-gray-600 mb-6">
+        Cached conversation situations tied to this deck, with a Japanese chat
+        partner and a post-conversation review.
+      </p>
+
+      <div className="grid xl:grid-cols-[360px_minmax(0,1fr)] gap-6">
+        <div className="space-y-6">
+          <div className="bg-white rounded-lg p-6 border border-gray-200">
+            <div className="flex items-center justify-between gap-3 mb-3">
+              <div>
+                <h3 className="font-semibold">Scenario Pool</h3>
+                <p className="text-sm text-gray-600">
+                  Suggestions stay cached until you explicitly ask for more.
+                </p>
+              </div>
+              <button
+                onClick={() => void generateSuggestedScenarios()}
+                disabled={isGeneratingScenarios}
+                className="inline-flex items-center gap-2 rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white hover:bg-sky-700 disabled:cursor-not-allowed disabled:bg-sky-300"
+              >
+                {isGeneratingScenarios ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Sparkles className="w-4 h-4" />
+                )}
+                Generate Suggestions
+              </button>
+            </div>
+            {recommendedReason && (
+              <div className="rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                {shouldGenerateMore ? 'Suggestion:' : 'Cache status:'} {recommendedReason}
+              </div>
+            )}
+          </div>
+
+          <div className="bg-white rounded-lg p-6 border border-gray-200">
+            <h3 className="font-semibold mb-4">Add Custom Situation / Topic</h3>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Title
+                </label>
+                <input
+                  type="text"
+                  value={customTitle}
+                  onChange={(event) => setCustomTitle(event.target.value)}
+                  placeholder="Ordering coffee, asking for directions, job interview..."
+                  className="w-full rounded-xl border border-gray-300 px-4 py-3 focus:outline-none focus:ring-2 focus:ring-sky-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Summary
+                </label>
+                <textarea
+                  value={customSummary}
+                  onChange={(event) => setCustomSummary(event.target.value)}
+                  rows={3}
+                  placeholder="Optional note for the conversation goal."
+                  className="w-full rounded-xl border border-gray-300 px-4 py-3 focus:outline-none focus:ring-2 focus:ring-sky-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Topic Hint
+                </label>
+                <input
+                  type="text"
+                  value={topicHint}
+                  onChange={(event) => setTopicHint(event.target.value)}
+                  placeholder="shopping, school, train station, part-time job..."
+                  className="w-full rounded-xl border border-gray-300 px-4 py-3 focus:outline-none focus:ring-2 focus:ring-sky-500"
+                />
+              </div>
+
+              <div>
+                <div className="text-sm font-medium text-gray-700 mb-2">
+                  Difficulty
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {DIFFICULTY_OPTIONS.map((option) => (
+                    <button
+                      key={option.key}
+                      onClick={() => setDifficulty(option.key)}
+                      className={`rounded-full px-4 py-2 text-sm font-medium transition-colors ${
+                        difficulty === option.key
+                          ? 'bg-sky-600 text-white'
+                          : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                      }`}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <div className="text-sm font-medium text-gray-700 mb-2">
+                  Style
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {STYLE_OPTIONS.map((option) => (
+                    <button
+                      key={option.key}
+                      onClick={() => setStyle(option.key)}
+                      className={`rounded-full px-4 py-2 text-sm font-medium transition-colors ${
+                        style === option.key
+                          ? 'bg-sky-600 text-white'
+                          : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                      }`}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <button
+                onClick={() => void createScenario()}
+                disabled={isCreatingScenario}
+                className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-sky-200 bg-sky-50 px-4 py-3 font-medium text-sky-800 hover:bg-sky-100 disabled:cursor-not-allowed disabled:opacity-70"
+              >
+                {isCreatingScenario ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Plus className="w-4 h-4" />
+                )}
+                Add Custom Conversation
+              </button>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-lg p-4 border border-gray-200">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="font-semibold">Cached Scenarios</h3>
+              {isLoadingScenarios && <Loader2 className="w-4 h-4 animate-spin" />}
+            </div>
+
+            <div className="space-y-3 max-h-[520px] overflow-y-auto pr-1">
+              {scenarios.length === 0 ? (
+                <div className="rounded-xl border border-dashed border-gray-300 px-4 py-6 text-sm text-gray-500">
+                  No conversation scenarios are cached yet. Generate suggestions or add a custom topic.
+                </div>
+              ) : (
+                scenarios.map((scenario) => (
+                  <button
+                    key={scenario.id}
+                    onClick={() => setSelectedScenarioId(scenario.id)}
+                    className={`w-full rounded-2xl border-2 p-4 text-left transition-all ${scenarioCardTone(
+                      scenario.id === selectedScenarioId,
+                    )}`}
+                  >
+                    <div className="font-semibold text-gray-900 mb-1">
+                      {scenario.title}
+                    </div>
+                    <div className="text-sm text-gray-600 mb-3">
+                      {scenario.summary}
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
+                        {scenario.difficulty}
+                      </span>
+                      <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
+                        {scenario.style || 'casual'}
+                      </span>
+                      {scenario.is_custom && (
+                        <span className="rounded-full bg-violet-50 px-3 py-1 text-xs font-medium text-violet-700">
+                          Custom
+                        </span>
+                      )}
+                    </div>
+                  </button>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+
+        <div className="space-y-6">
+          {selectedScenario && (
+            <div className="bg-white rounded-lg p-6 border border-gray-200">
+              <div className="flex flex-wrap items-start justify-between gap-4">
+                <div>
+                  <div className="text-sm uppercase tracking-[0.2em] text-slate-500 mb-2">
+                    Selected Scenario
+                  </div>
+                  <h3 className="text-2xl font-semibold text-slate-900 mb-2">
+                    {selectedScenario.title}
+                  </h3>
+                  <p className="text-gray-600">{selectedScenario.summary}</p>
+                </div>
+
+                <button
+                  onClick={() => void startConversation()}
+                  disabled={isStartingSession}
+                  className="inline-flex items-center gap-2 rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white hover:bg-sky-700 disabled:cursor-not-allowed disabled:bg-sky-300"
+                >
+                  {isStartingSession ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <MessageSquareText className="w-4 h-4" />
+                  )}
+                  Start Conversation
+                </button>
+              </div>
+
+              <div className="flex flex-wrap gap-2 mt-4">
+                <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
+                  {selectedScenario.difficulty}
+                </span>
+                <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
+                  {selectedScenario.style || 'casual'}
+                </span>
+                <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
+                  Used {selectedScenario.times_used}
+                </span>
+                <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
+                  Completed {selectedScenario.times_completed}
+                </span>
+              </div>
+
+              {selectedScenario.topic_hint && (
+                <div className="mt-4 text-sm text-gray-600">
+                  Topic focus: {selectedScenario.topic_hint}
+                </div>
+              )}
+            </div>
+          )}
+
+          {sessionId ? (
+            <>
+              <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+                <div className="border-b border-gray-200 px-6 py-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <div className="text-sm uppercase tracking-[0.2em] text-slate-500 mb-1">
+                        Live Conversation
+                      </div>
+                      <h3 className="text-xl font-semibold text-slate-900">
+                        {activeScenario?.title ?? selectedScenario?.title}
+                      </h3>
+                      <div className="text-sm text-gray-600 mt-1">
+                        Partner: {partnerName}
+                      </div>
+                    </div>
+
+                    <button
+                      onClick={() => void completeConversation()}
+                      disabled={isCompletingSession || Boolean(feedback)}
+                      className="inline-flex items-center gap-2 rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-70"
+                    >
+                      {isCompletingSession ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <Square className="w-4 h-4" />
+                      )}
+                      Finish and Review
+                    </button>
+                  </div>
+
+                  {shouldWrapUp && !feedback && (
+                    <div className="mt-4 rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                      The AI thinks this is a good point to wrap up and get feedback.
+                    </div>
+                  )}
+                </div>
+
+                <div className="bg-slate-50 px-4 py-5">
+                  <div className="space-y-4 max-h-[420px] overflow-y-auto px-2">
+                    {messages.map((message, index) => {
+                      const isAssistant = message.role === 'assistant';
+                      return (
+                        <div
+                          key={`${message.role}-${index}`}
+                          className={`flex ${isAssistant ? 'justify-start' : 'justify-end'}`}
+                        >
+                          <div
+                            className={`max-w-[85%] rounded-2xl px-4 py-3 text-sm leading-7 shadow-sm ${
+                              isAssistant
+                                ? 'bg-white text-slate-900 border border-slate-200'
+                                : 'bg-sky-600 text-white'
+                            }`}
+                          >
+                            <div className="mb-1 text-[11px] font-semibold uppercase tracking-[0.2em] opacity-70">
+                              {isAssistant ? partnerName : 'You'}
+                            </div>
+                            <div className="whitespace-pre-wrap">{message.content}</div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <form onSubmit={handleSubmit} className="border-t border-gray-200 p-4">
+                  <div className="flex gap-3">
+                    <textarea
+                      value={messageInput}
+                      onChange={(event) => setMessageInput(event.target.value)}
+                      disabled={Boolean(feedback)}
+                      rows={3}
+                      placeholder="Type your reply in Japanese..."
+                      className="min-h-[84px] flex-1 rounded-2xl border border-gray-300 px-4 py-3 focus:outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-gray-100"
+                    />
+                    <button
+                      type="submit"
+                      disabled={isSendingMessage || !messageInput.trim() || Boolean(feedback)}
+                      className="inline-flex items-center gap-2 self-end rounded-2xl bg-sky-600 px-5 py-3 font-medium text-white hover:bg-sky-700 disabled:cursor-not-allowed disabled:bg-sky-300"
+                    >
+                      {isSendingMessage ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <SendHorizonal className="w-4 h-4" />
+                      )}
+                      Send
+                    </button>
+                  </div>
+                </form>
+              </div>
+
+              {feedback && (
+                <div className="bg-white rounded-lg p-6 border border-gray-200">
+                  <div className="flex flex-wrap items-center justify-between gap-4 mb-4">
+                    <div>
+                      <h3 className="font-semibold">Conversation Review</h3>
+                      <p className="text-sm text-gray-600">
+                        Review what went well and what to fix next round.
+                      </p>
+                    </div>
+                    <span className="rounded-full bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-800">
+                      Score {feedback.score_percent}%
+                    </span>
+                  </div>
+
+                  {feedback.summary && (
+                    <div className="rounded-2xl bg-slate-50 p-4 text-sm text-slate-700 mb-6">
+                      {feedback.summary}
+                    </div>
+                  )}
+
+                  <div className="grid xl:grid-cols-2 gap-4">
+                    <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
+                      <h4 className="font-medium text-emerald-900 mb-3">Correct</h4>
+                      <div className="space-y-2 text-sm text-emerald-900">
+                        {feedback.correct_points.length === 0 ? (
+                          <div>No specific correct points were called out.</div>
+                        ) : (
+                          feedback.correct_points.map((item, index) => (
+                            <div key={`correct-${index}`}>{item}</div>
+                          ))
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4">
+                      <h4 className="font-medium text-rose-900 mb-3">Incorrect</h4>
+                      <div className="space-y-2 text-sm text-rose-900">
+                        {feedback.incorrect_points.length === 0 ? (
+                          <div>No incorrect points were called out.</div>
+                        ) : (
+                          feedback.incorrect_points.map((item, index) => (
+                            <div key={`incorrect-${index}`}>{item}</div>
+                          ))
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="rounded-2xl border border-sky-200 bg-sky-50 p-4">
+                      <h4 className="font-medium text-sky-900 mb-3">Done Well</h4>
+                      <div className="space-y-2 text-sm text-sky-900">
+                        {feedback.strengths.length === 0 ? (
+                          <div>No specific strengths were listed.</div>
+                        ) : (
+                          feedback.strengths.map((item, index) => (
+                            <div key={`strength-${index}`}>{item}</div>
+                          ))
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
+                      <h4 className="font-medium text-amber-900 mb-3">
+                        Needs Improvement
+                      </h4>
+                      <div className="space-y-2 text-sm text-amber-900">
+                        {[...feedback.weaknesses, ...feedback.improvements].length ===
+                        0 ? (
+                          <div>No improvement items were listed.</div>
+                        ) : (
+                          [...feedback.weaknesses, ...feedback.improvements].map(
+                            (item, index) => (
+                              <div key={`improve-${index}`}>{item}</div>
+                            ),
+                          )
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </>
+          ) : (
+            <div className="bg-white rounded-lg p-8 border border-gray-200 text-center text-gray-500">
+              {selectedScenario
+                ? 'Select "Start Conversation" to begin a Japanese back-and-forth for this scenario.'
+                : 'Generate or add a conversation scenario to get started.'}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}

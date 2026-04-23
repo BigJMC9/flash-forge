@@ -9,6 +9,8 @@ import { DeckOperations } from './pages/DeckOperations';
 import { Revision } from './pages/Revision';
 import { Practice } from './pages/Practice';
 import { ImportExport } from './pages/ImportExport';
+import { Reading } from './pages/Reading';
+import { Conversation } from './pages/Conversation';
 
 function Root() {
   return (
@@ -74,6 +76,22 @@ function PracticePage() {
   );
 }
 
+function ReadingPage() {
+  return (
+    <Layout>
+      <Reading />
+    </Layout>
+  );
+}
+
+function ConversationPage() {
+  return (
+    <Layout>
+      <Conversation />
+    </Layout>
+  );
+}
+
 function ImportExportPage() {
   return (
     <Layout>
@@ -114,6 +132,14 @@ export const router = createBrowserRouter([
   {
     path: '/practice/:deckId',
     Component: PracticePage,
+  },
+  {
+    path: '/reading/:deckId',
+    Component: ReadingPage,
+  },
+  {
+    path: '/conversation/:deckId',
+    Component: ConversationPage,
   },
   {
     path: '/import-export',

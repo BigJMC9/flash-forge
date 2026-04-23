@@ -777,7 +777,7 @@ export function Practice() {
     <div className="max-w-7xl mx-auto">
       <h2 className="text-2xl font-semibold mb-2">Practice: {deck.name}</h2>
       <p className="text-gray-600 mb-6">
-        Sort drills, conjugation builders, and deck-focused reading comprehension
+        Sort drills and conjugation builders for the current deck
       </p>
 
       {!isActive && answers.length === 0 && !readingSession && (
