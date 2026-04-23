@@ -106,6 +106,7 @@ UserColumnDefinitions = {
     "password_hash": "TEXT NOT NULL DEFAULT ''",
     "is_admin": "INTEGER NOT NULL DEFAULT 0",
     "can_use_ai": "INTEGER NOT NULL DEFAULT 1",
+    "can_use_ocr": "INTEGER NOT NULL DEFAULT 0",
     "is_active": "INTEGER NOT NULL DEFAULT 1",
     "created_at": "REAL NOT NULL DEFAULT 0",
     "updated_at": "REAL NOT NULL DEFAULT 0",
@@ -167,6 +168,7 @@ def EnsureDatabaseSchema(connection: sqlite3.Connection) -> None:
             password_hash TEXT NOT NULL DEFAULT '',
             is_admin INTEGER NOT NULL DEFAULT 0,
             can_use_ai INTEGER NOT NULL DEFAULT 1,
+            can_use_ocr INTEGER NOT NULL DEFAULT 0,
             is_active INTEGER NOT NULL DEFAULT 1,
             created_at REAL NOT NULL,
             updated_at REAL NOT NULL
@@ -607,6 +609,7 @@ def SerializeUserRow(row: sqlite3.Row) -> Dict[str, Any]:
         "email": (row["email"] or "").strip(),
         "is_admin": bool(row["is_admin"]),
         "can_use_ai": bool(row["can_use_ai"]),
+        "can_use_ocr": bool(row["can_use_ocr"]),
         "is_active": bool(row["is_active"]),
         "created_at": float(row["created_at"] or 0),
         "updated_at": float(row["updated_at"] or 0),
@@ -1724,6 +1727,7 @@ def CreateUser(
     password: str,
     isAdmin: bool = False,
     canUseAi: bool = True,
+    canUseOcr: bool = False,
 ) -> sqlite3.Row:
     normalizedUsername = (username or "").strip()
     normalizedEmail = NormalizeEmail(email)
@@ -1737,8 +1741,8 @@ def CreateUser(
         """
         INSERT INTO users (
             id, username, email, password_salt, password_hash,
-            is_admin, can_use_ai, is_active, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+            is_admin, can_use_ai, can_use_ocr, is_active, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
         """,
         (
             userId,
@@ -1748,6 +1752,7 @@ def CreateUser(
             HashPassword(password, salt),
             int(bool(isAdmin)),
             int(bool(canUseAi)),
+            int(bool(canUseOcr)),
             now,
             now,
         ),
@@ -1854,6 +1859,7 @@ def UpdateUserPermissions(
     *,
     isAdmin: Optional[bool] = None,
     canUseAi: Optional[bool] = None,
+    canUseOcr: Optional[bool] = None,
     isActive: Optional[bool] = None,
 ) -> None:
     fields: List[str] = []
@@ -1864,6 +1870,9 @@ def UpdateUserPermissions(
     if canUseAi is not None:
         fields.append("can_use_ai = ?")
         values.append(int(bool(canUseAi)))
+    if canUseOcr is not None:
+        fields.append("can_use_ocr = ?")
+        values.append(int(bool(canUseOcr)))
     if isActive is not None:
         fields.append("is_active = ?")
         values.append(int(bool(isActive)))

@@ -271,6 +271,13 @@ def require_ai_user() -> Dict[str, Any]:
     return user
 
 
+def require_ocr_user() -> Dict[str, Any]:
+    user = require_request_user()
+    if not bool(user.get("can_use_ocr")):
+        raise RuntimeError("OCR access is disabled for your account. Ask an administrator to enable it.")
+    return user
+
+
 def get_request_user_id() -> str:
     user = require_request_user()
     return normalize_text(user.get("id", ""))
@@ -1149,6 +1156,7 @@ def action_register_user(payload: Dict[str, Any]) -> Dict[str, Any]:
         password,
         isAdmin=is_first_user,
         canUseAi=is_first_user,
+        canUseOcr=False,
     )
     if seed_from_template:
         CloneTemplateDataToUser(connection, user_row["id"])
@@ -1213,6 +1221,7 @@ def action_admin_update_user(payload: Dict[str, Any]) -> Dict[str, Any]:
         user_id,
         isAdmin=payload.get("is_admin") if "is_admin" in payload else None,
         canUseAi=payload.get("can_use_ai") if "can_use_ai" in payload else None,
+        canUseOcr=payload.get("can_use_ocr") if "can_use_ocr" in payload else None,
         isActive=payload.get("is_active") if "is_active" in payload else None,
     )
     user_row = GetUserById(get_connection(), user_id)
@@ -1735,7 +1744,7 @@ def action_scan_images(payload: Dict[str, Any]) -> Dict[str, Any]:
     if not image_paths:
         raise RuntimeError("Select one or more image files first.")
     require_accessible_deck(deck_id, require_write=True)
-    require_ai_user()
+    require_ocr_user()
 
     upload_adapters = [read_local_file(path) for path in image_paths]
     connection = get_connection()

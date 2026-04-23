@@ -88,6 +88,12 @@ export function Account() {
                 {currentUser?.can_use_ai ? 'Granted' : 'Not granted'}
               </dd>
             </div>
+            <div className="flex justify-between gap-4 border-b border-gray-100 pb-3">
+              <dt className="text-gray-500">OCR Access</dt>
+              <dd className="font-medium text-gray-900">
+                {currentUser?.can_use_ocr ? 'Granted' : 'Not granted'}
+              </dd>
+            </div>
             <div className="flex justify-between gap-4">
               <dt className="text-gray-500">Role</dt>
               <dd className="font-medium text-gray-900">

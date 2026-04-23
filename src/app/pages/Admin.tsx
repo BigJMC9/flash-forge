@@ -44,6 +44,7 @@ export function Admin() {
           user_id: row.id,
           is_admin: row.is_admin,
           can_use_ai: row.can_use_ai,
+          can_use_ocr: row.can_use_ocr,
           is_active: row.is_active,
         },
       );
@@ -94,8 +95,8 @@ export function Admin() {
       <div className="rounded-2xl border border-amber-200 bg-amber-50 p-6">
         <h2 className="text-2xl font-semibold text-amber-950">Admin Panel</h2>
         <p className="mt-2 text-sm text-amber-900">
-          Manage account status, AI access, and password resets. Changes apply
-          immediately.
+          Manage account status, AI access, OCR access, and password resets.
+          Changes apply immediately.
         </p>
       </div>
 
@@ -130,7 +131,7 @@ export function Admin() {
                     </div>
                   </div>
 
-                  <div className="grid gap-3 sm:grid-cols-3">
+                  <div className="grid gap-3 sm:grid-cols-4">
                     <label className="flex items-center gap-2 rounded-xl border border-gray-200 px-4 py-3 text-sm text-gray-700">
                       <input
                         type="checkbox"
@@ -150,6 +151,16 @@ export function Admin() {
                         }
                       />
                       AI Access
+                    </label>
+                    <label className="flex items-center gap-2 rounded-xl border border-gray-200 px-4 py-3 text-sm text-gray-700">
+                      <input
+                        type="checkbox"
+                        checked={row.can_use_ocr}
+                        onChange={(event) =>
+                          patchRow(row.id, { can_use_ocr: event.target.checked })
+                        }
+                      />
+                      OCR Access
                     </label>
                     <label className="flex items-center gap-2 rounded-xl border border-gray-200 px-4 py-3 text-sm text-gray-700">
                       <input

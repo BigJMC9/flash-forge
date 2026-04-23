@@ -13,6 +13,7 @@ import { ScanPreviewRow } from '../types';
 export function ImportExport() {
   const {
     cardSchemas,
+    currentUser,
     decks,
     defaultSchemaKey,
     defaultWordForm,
@@ -36,6 +37,7 @@ export function ImportExport() {
 
   const [exportDeckId, setExportDeckId] = useState('');
   const [lastExportFilename, setLastExportFilename] = useState('');
+  const canUseOcr = Boolean(currentUser?.can_use_ocr);
 
   const handleRunScan = async () => {
     if (!scanDeckId) {
@@ -163,6 +165,13 @@ export function ImportExport() {
           <h3 className="text-lg font-semibold">OCR / Scan Intake</h3>
         </div>
 
+        {!canUseOcr && (
+          <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+            OCR is disabled for your account by default. Ask an administrator to
+            enable OCR access if you need image scanning.
+          </div>
+        )}
+
         <div className="grid md:grid-cols-3 gap-4 mb-4">
           <div>
             <label className="block text-sm text-gray-600 mb-2">
@@ -171,6 +180,7 @@ export function ImportExport() {
             <select
               value={scanDeckId}
               onChange={(event) => setScanDeckId(event.target.value)}
+              disabled={!canUseOcr}
               className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
               <option value="">Select deck…</option>
@@ -187,6 +197,7 @@ export function ImportExport() {
             <select
               value={scanSchemaKey}
               onChange={(event) => setScanSchemaKey(event.target.value)}
+              disabled={!canUseOcr}
               className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
               {cardSchemas.map((schema) => (
@@ -204,6 +215,7 @@ export function ImportExport() {
             <select
               value={scanWordForm}
               onChange={(event) => setScanWordForm(event.target.value)}
+              disabled={!canUseOcr}
               className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
               {verbForms.map((form) => (
@@ -221,19 +233,21 @@ export function ImportExport() {
             type="text"
             value={scanTags}
             onChange={(event) => setScanTags(event.target.value)}
+            disabled={!canUseOcr}
             placeholder="image_ocr,chapter-1"
             className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
         </div>
 
         <div className="flex flex-wrap items-center gap-3 mb-4">
-          <label className="inline-flex items-center gap-3 px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 cursor-pointer">
+          <label className={`inline-flex items-center gap-3 px-6 py-3 rounded-lg text-white ${canUseOcr ? 'bg-blue-600 hover:bg-blue-700 cursor-pointer' : 'bg-blue-300 cursor-not-allowed'}`}>
             <Upload className="w-5 h-5" />
             <span>Select Images</span>
             <input
               type="file"
               accept="image/*"
               multiple
+              disabled={!canUseOcr}
               onChange={(event) =>
                 setScanFiles(Array.from(event.target.files ?? []))
               }
@@ -243,6 +257,7 @@ export function ImportExport() {
 
           <button
             onClick={() => void handleRunScan()}
+            disabled={!canUseOcr}
             className="px-6 py-3 border border-gray-300 rounded-lg hover:bg-gray-50"
           >
             Run Scan

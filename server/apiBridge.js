@@ -17,6 +17,19 @@ const pythonCommandDefault = process.env.PYTHON ?? 'python';
 
 export const SESSION_COOKIE_NAME = 'flash_forge_session';
 const SESSION_COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24 * 30;
+const MAX_ACTION_BODY_BYTES = 256 * 1024;
+const MAX_EXPORT_BODY_BYTES = 32 * 1024;
+const MAX_ACTION_WITH_FILES_BODY_BYTES = 70 * 1024 * 1024;
+const AUTH_RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000;
+const AUTH_RATE_LIMIT_MAX_ATTEMPTS = 10;
+const AUTH_RATE_LIMIT_ACTIONS = new Set(['login_user', 'register_user']);
+const authRateLimitBuckets = new Map();
+
+function createHttpError(statusCode, message) {
+  const error = new Error(message);
+  error.statusCode = statusCode;
+  return error;
+}
 
 function extractSidecarError(stdout, stderr) {
   try {
@@ -42,10 +55,16 @@ function extractSidecarError(stdout, stderr) {
   return 'Sidecar process failed without output.';
 }
 
-async function parseJsonBody(req) {
+async function parseJsonBody(req, maxBytes = MAX_ACTION_BODY_BYTES) {
   const chunks = [];
+  let totalBytes = 0;
   for await (const chunk of req) {
-    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    totalBytes += buffer.length;
+    if (totalBytes > maxBytes) {
+      throw createHttpError(413, 'Request body is too large.');
+    }
+    chunks.push(buffer);
   }
 
   const body = Buffer.concat(chunks).toString('utf-8').trim();
@@ -53,7 +72,11 @@ async function parseJsonBody(req) {
     return {};
   }
 
-  return JSON.parse(body);
+  try {
+    return JSON.parse(body);
+  } catch {
+    throw createHttpError(400, 'Request body must be valid JSON.');
+  }
 }
 
 function writeJson(res, statusCode, payload, extraHeaders = {}) {
@@ -89,6 +112,46 @@ function parseCookies(req) {
 
 function getSessionToken(req) {
   return parseCookies(req)[SESSION_COOKIE_NAME] ?? '';
+}
+
+function getClientIp(req) {
+  const forwarded = String(req.headers['x-forwarded-for'] ?? '')
+    .split(',')[0]
+    .trim();
+  if (forwarded) {
+    return forwarded;
+  }
+  return String(req.socket?.remoteAddress ?? 'unknown');
+}
+
+function pruneAuthRateLimitBucket(now, bucket) {
+  return bucket.filter((timestamp) => now - timestamp < AUTH_RATE_LIMIT_WINDOW_MS);
+}
+
+function enforceAuthRateLimit(req, action) {
+  if (!AUTH_RATE_LIMIT_ACTIONS.has(action)) {
+    return;
+  }
+
+  const now = Date.now();
+  const key = `${action}:${getClientIp(req)}`;
+  const existing = pruneAuthRateLimitBucket(now, authRateLimitBuckets.get(key) ?? []);
+  if (existing.length >= AUTH_RATE_LIMIT_MAX_ATTEMPTS) {
+    authRateLimitBuckets.set(key, existing);
+    throw createHttpError(
+      429,
+      'Too many authentication attempts. Try again in 15 minutes.',
+    );
+  }
+  existing.push(now);
+  authRateLimitBuckets.set(key, existing);
+}
+
+function clearAuthRateLimit(req, action) {
+  if (!AUTH_RATE_LIMIT_ACTIONS.has(action)) {
+    return;
+  }
+  authRateLimitBuckets.delete(`${action}:${getClientIp(req)}`);
 }
 
 function shouldUseSecureCookies(req) {
@@ -284,6 +347,7 @@ function normalizeActionResponse(action, data, req, res) {
     const sanitized = { ...(data ?? {}) };
     delete sanitized.session_token;
     if (sessionToken) {
+      clearAuthRateLimit(req, action);
       sanitized.session_established = true;
     }
     return sanitized;
@@ -293,7 +357,7 @@ function normalizeActionResponse(action, data, req, res) {
 }
 
 async function handleActionRequest(req, res, options = {}) {
-  const body = await parseJsonBody(req);
+  const body = await parseJsonBody(req, MAX_ACTION_BODY_BYTES);
   const action = String(body?.action ?? '').trim();
 
   if (!action) {
@@ -304,6 +368,7 @@ async function handleActionRequest(req, res, options = {}) {
     return;
   }
 
+  enforceAuthRateLimit(req, action);
   const payload = withSessionPayload(req, body?.payload ?? {});
   const data = await runSidecarAction(action, payload, options);
   const normalizedData = normalizeActionResponse(action, data, req, res);
@@ -311,7 +376,7 @@ async function handleActionRequest(req, res, options = {}) {
 }
 
 async function handleActionWithFilesRequest(req, res, options = {}) {
-  const body = await parseJsonBody(req);
+  const body = await parseJsonBody(req, MAX_ACTION_WITH_FILES_BODY_BYTES);
   const action = String(body?.action ?? '').trim();
   const fileField = String(body?.fileField ?? '').trim();
   const fileMode = body?.fileMode === 'single' ? 'single' : 'array';
@@ -346,7 +411,7 @@ async function handleActionWithFilesRequest(req, res, options = {}) {
 }
 
 async function handleExportDeckRequest(req, res, options = {}) {
-  const body = await parseJsonBody(req);
+  const body = await parseJsonBody(req, MAX_EXPORT_BODY_BYTES);
   const deckId = String(body?.deck_id ?? '').trim();
 
   if (!deckId) {
@@ -416,7 +481,9 @@ export async function routeApiRequest(
       error: { message: `Unknown API route: ${url.pathname}` },
     });
   } catch (error) {
-    writeJson(res, 500, {
+    const statusCode =
+      typeof error?.statusCode === 'number' ? error.statusCode : 500;
+    writeJson(res, statusCode, {
       ok: false,
       error: {
         message: error instanceof Error ? error.message : String(error),

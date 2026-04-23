@@ -31,6 +31,7 @@ export interface UserAccountRow {
   email: string;
   is_admin: boolean;
   can_use_ai: boolean;
+  can_use_ocr: boolean;
   is_active: boolean;
   created_at: number;
   updated_at: number;
