@@ -75,10 +75,44 @@ export interface DictionaryEntry {
   english: string;
   glosses: string[];
   pos_labels: string[];
+  senses?: {
+    sense_index: number;
+    glosses: string[];
+    pos_labels: string[];
+    notes: string[];
+  }[];
+  examples?: {
+    japanese: string;
+    reading: string;
+    english: string;
+  }[];
+  kanji_forms?: string[];
+  kana_forms?: string[];
   option_label: string;
   verb_type: string;
   verb_type_label?: string;
   is_verb: boolean;
+  word_fields?: {
+    key: string;
+    label: string;
+    word: string;
+    reading: string;
+    role: 'parent' | 'child';
+  }[];
+  stem_entry?: {
+    word: string;
+    reading: string;
+    field_key: string;
+    field_label: string;
+  };
+  search_match?: {
+    relation: 'parent' | 'child' | 'variant' | 'gloss' | 'entry';
+    relation_label: string;
+    field_key: string;
+    field_label: string;
+    matched_text: string;
+    score: number;
+  };
   forms?: Record<string, { kanji?: string; kana?: string }>;
 }
 

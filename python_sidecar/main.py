@@ -294,6 +294,9 @@ def detect_practice_verb_type(card: Any) -> str:
 def detect_practice_adjective_bucket(card: Any) -> str:
     pos_tags = get_dictionary_pos_tags(card)
 
+    if "adv" in pos_tags:
+        return ""
+
     if "adj-na" in pos_tags:
         return "na_adj"
     if "adj-i" in pos_tags:
@@ -303,6 +306,9 @@ def detect_practice_adjective_bucket(card: Any) -> str:
 
 def explain_adjective_filter(card: Any) -> str:
     pos_tags = get_dictionary_pos_tags(card)
+
+    if "adv" in pos_tags:
+        return f"filtered:mixed_adverb_entry ({', '.join(pos_tags)})"
     if "adj-na" in pos_tags:
         return "included:adj-na"
     if "adj-i" in pos_tags:
@@ -310,7 +316,6 @@ def explain_adjective_filter(card: Any) -> str:
     if pos_tags:
         return f"filtered:no_supported_adjective_tag ({', '.join(pos_tags)})"
     return "filtered:no_pos_tags"
-
 
 def build_practice_dedupe_key(card: Any, bucket: str) -> str:
     dictionary_entry_id = get_card_text(card, "dictionary_entry_id")

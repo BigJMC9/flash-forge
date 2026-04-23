@@ -14,6 +14,11 @@ VerbFormLabels = {
     "past": "Past form",
     "negative": "Negative form",
 }
+AdjectiveFormLabels = {
+    "dictionary": "Dictionary stem",
+    "past": "Past form",
+    "negative": "Negative form",
+}
 
 VerbTypeLabels = {
     "ichidan": "Ichidan",
@@ -81,6 +86,32 @@ GodanNegativeMap = {
     "ぶ": "ばない",
     "む": "まない",
     "る": "らない",
+}
+GodanIStemReverseMap = {value: key for key, value in GodanIStemMap.items()}
+GodanNegativeStemEndingMap = {
+    "わ": "う",
+    "か": "く",
+    "が": "ぐ",
+    "さ": "す",
+    "た": "つ",
+    "な": "ぬ",
+    "ば": "ぶ",
+    "ま": "む",
+    "ら": "る",
+}
+GodanTeReverseMap = {
+    "って": ["う", "つ", "る"],
+    "んで": ["ぶ", "む", "ぬ"],
+    "いて": ["く"],
+    "いで": ["ぐ"],
+    "して": ["す", "する"],
+}
+GodanPastReverseMap = {
+    "った": ["う", "つ", "る"],
+    "んだ": ["ぶ", "む", "ぬ"],
+    "いた": ["く"],
+    "いだ": ["ぐ"],
+    "した": ["す", "する"],
 }
 PoliteMasuEndings = ("ます", "ました", "ません", "ませんでした", "ましょう")
 ThreadLocalState = threading.local()
@@ -347,6 +378,15 @@ def DetectVerbType(posLabels: List[str]) -> str:
     return "other"
 
 
+def DetectAdjectiveType(posLabels: List[str]) -> str:
+    normalized = " | ".join(posLabels).lower()
+    if "adj-i" in normalized or "adjective (keiyoushi)" in normalized:
+        return "i_adj"
+    if "adj-na" in normalized or "adjectival noun" in normalized or "keiyodoshi" in normalized:
+        return "na_adj"
+    return "other"
+
+
 def ChooseDictionaryLikeForm(forms: List[str]) -> str:
     if not forms:
         return ""
@@ -406,6 +446,22 @@ def SearchDictionaryEntries(query: str, limit: int = 25) -> List[Dict[str, Any]]
     normalizedQuery = NormalizeText(query)
     if not normalizedQuery:
         return []
+
+    directResults = SearchDictionaryEntriesRaw(normalizedQuery, limit=limit)
+    results = directResults
+    if not results and (ContainsKanji(normalizedQuery) or ContainsKana(normalizedQuery)):
+        results = SearchDictionaryEntriesByStemGuess(normalizedQuery, limit=limit)
+
+    annotatedResults: List[Dict[str, Any]] = []
+    for entry in results[:limit]:
+        annotatedResults.append(AnnotateDictionaryEntrySearchMetadata(entry, normalizedQuery))
+    return annotatedResults
+
+
+def SearchDictionaryEntriesRaw(query: str, limit: int = 25) -> List[Dict[str, Any]]:
+    normalizedQuery = NormalizeText(query)
+    if not normalizedQuery:
+        return []
     normalizedNumericQuery = NormalizeNumericJapaneseSurface(normalizedQuery)
 
     client = GetJamdictClient()
@@ -442,6 +498,288 @@ def SearchDictionaryEntries(query: str, limit: int = 25) -> List[Dict[str, Any]]
             break
 
     return results
+
+
+def BuildIAdjectiveForms(entry: Dict[str, Any]) -> Dict[str, Dict[str, str]]:
+    word = NormalizeText(entry.get("headword", ""))
+    reading = NormalizeText(entry.get("reading", ""))
+    forms = {
+        "dictionary": {"kanji": word, "kana": reading},
+        "past": {"kanji": word, "kana": reading},
+        "negative": {"kanji": word, "kana": reading},
+    }
+    if reading.endswith("い"):
+        readingStem = reading[:-1]
+        forms["past"]["kana"] = f"{readingStem}かった"
+        forms["negative"]["kana"] = f"{readingStem}くない"
+    if word.endswith("い"):
+        wordStem = word[:-1]
+        forms["past"]["kanji"] = f"{wordStem}かった"
+        forms["negative"]["kanji"] = f"{wordStem}くない"
+    return forms
+
+
+def BuildNaAdjectiveForms(entry: Dict[str, Any]) -> Dict[str, Dict[str, str]]:
+    word = NormalizeText(entry.get("headword", ""))
+    reading = NormalizeText(entry.get("reading", ""))
+    return {
+        "dictionary": {"kanji": word, "kana": reading},
+        "past": {"kanji": f"{word}だった", "kana": f"{reading}だった"},
+        "negative": {"kanji": f"{word}じゃない", "kana": f"{reading}じゃない"},
+    }
+
+
+def BuildDictionaryEntryWordFields(entry: Dict[str, Any]) -> List[Dict[str, str]]:
+    fields: List[Dict[str, str]] = []
+    if entry.get("verb_type", "other") != "other":
+        forms = BuildConjugatedForms(entry)
+        for fieldKey, fieldLabel in VerbFormLabels.items():
+            form = forms.get(fieldKey, {})
+            kanji = NormalizeText(form.get("kanji", ""))
+            kana = NormalizeText(form.get("kana", ""))
+            if not kanji and not kana:
+                continue
+            fields.append(
+                {
+                    "key": fieldKey,
+                    "label": fieldLabel,
+                    "word": kanji or kana,
+                    "reading": kana or kanji,
+                    "role": "parent" if fieldKey == "dictionary" else "child",
+                }
+            )
+        return fields
+
+    adjectiveType = DetectAdjectiveType(entry.get("pos_labels", []))
+    if adjectiveType == "i_adj":
+        forms = BuildIAdjectiveForms(entry)
+    elif adjectiveType == "na_adj":
+        forms = BuildNaAdjectiveForms(entry)
+    else:
+        forms = {
+            "dictionary": {
+                "kanji": NormalizeText(entry.get("headword", "")),
+                "kana": NormalizeText(entry.get("reading", "")),
+            }
+        }
+
+    for fieldKey, fieldLabel in AdjectiveFormLabels.items():
+        form = forms.get(fieldKey, {})
+        kanji = NormalizeText(form.get("kanji", ""))
+        kana = NormalizeText(form.get("kana", ""))
+        if not kanji and not kana:
+            continue
+        fields.append(
+            {
+                "key": fieldKey,
+                "label": fieldLabel,
+                "word": kanji or kana,
+                "reading": kana or kanji,
+                "role": "parent" if fieldKey == "dictionary" else "child",
+            }
+        )
+    return fields
+
+
+def BuildDictionarySearchMatch(entry: Dict[str, Any], query: str) -> Dict[str, Any]:
+    normalizedQuery = NormalizeNumericJapaneseSurface(NormalizeText(query))
+    loweredQuery = NormalizeText(query).lower()
+    bestMatch = {
+        "relation": "entry",
+        "relation_label": "Entry",
+        "field_key": "entry",
+        "field_label": "Dictionary entry",
+        "matched_text": "",
+        "score": 0,
+    }
+
+    def update_match(score: int, relation: str, relationLabel: str, fieldKey: str, fieldLabel: str, matchedText: str):
+        nonlocal bestMatch
+        if score > bestMatch["score"]:
+            bestMatch = {
+                "relation": relation,
+                "relation_label": relationLabel,
+                "field_key": fieldKey,
+                "field_label": fieldLabel,
+                "matched_text": matchedText,
+                "score": score,
+            }
+
+    headword = NormalizeNumericJapaneseSurface(entry.get("headword", ""))
+    reading = NormalizeText(entry.get("reading", ""))
+
+    if normalizedQuery and normalizedQuery == headword:
+        update_match(420, "parent", "Parent", "dictionary_headword", "Dictionary headword", entry.get("headword", ""))
+    if normalizedQuery and normalizedQuery == reading:
+        update_match(410, "parent", "Parent", "dictionary_reading", "Dictionary reading", entry.get("reading", ""))
+
+    for form in entry.get("kanji_forms", []):
+        normalizedForm = NormalizeNumericJapaneseSurface(form)
+        if not normalizedQuery or normalizedForm != normalizedQuery:
+            continue
+        score = 360 if normalizedForm != headword else 420
+        relation = "variant" if normalizedForm != headword else "parent"
+        relationLabel = "Variant" if relation == "variant" else "Parent"
+        fieldLabel = "JMDict kanji form" if relation == "variant" else "Dictionary headword"
+        update_match(score, relation, relationLabel, "kanji_form", fieldLabel, form)
+
+    for form in entry.get("kana_forms", []):
+        normalizedForm = NormalizeText(form)
+        if not normalizedQuery or normalizedForm != normalizedQuery:
+            continue
+        score = 350 if normalizedForm != reading else 410
+        relation = "variant" if normalizedForm != reading else "parent"
+        relationLabel = "Variant" if relation == "variant" else "Parent"
+        fieldLabel = "JMDict kana form" if relation == "variant" else "Dictionary reading"
+        update_match(score, relation, relationLabel, "kana_form", fieldLabel, form)
+
+    for field in BuildDictionaryEntryWordFields(entry):
+        if field["key"] == "dictionary":
+            continue
+        for candidate in [field["word"], field["reading"]]:
+            normalizedCandidate = NormalizeNumericJapaneseSurface(NormalizeText(candidate))
+            if normalizedQuery and normalizedCandidate == normalizedQuery:
+                update_match(320, "child", "Child", field["key"], field["label"], candidate)
+
+    for gloss in entry.get("glosses", []):
+        normalizedGloss = NormalizeText(gloss).lower()
+        if not loweredQuery or not normalizedGloss:
+            continue
+        if loweredQuery == normalizedGloss:
+            update_match(180, "gloss", "Gloss", "gloss", "English gloss", gloss)
+        elif loweredQuery in normalizedGloss:
+            update_match(120, "gloss", "Gloss", "gloss", "English gloss", gloss)
+
+    return bestMatch
+
+
+def AnnotateDictionaryEntrySearchMetadata(entry: Dict[str, Any], query: str) -> Dict[str, Any]:
+    annotatedEntry = dict(entry)
+    annotatedEntry["word_fields"] = BuildDictionaryEntryWordFields(entry)
+    annotatedEntry["stem_entry"] = {
+        "word": NormalizeText(entry.get("headword", "")) or NormalizeText(entry.get("reading", "")),
+        "reading": NormalizeText(entry.get("reading", "")) or NormalizeText(entry.get("headword", "")),
+        "field_key": "dictionary",
+        "field_label": "Dictionary stem",
+    }
+    annotatedEntry["search_match"] = BuildDictionarySearchMatch(entry, query)
+    return annotatedEntry
+
+
+def InferDictionaryStemCandidates(query: str) -> List[str]:
+    normalizedQuery = NormalizeNumericJapaneseSurface(NormalizeText(query))
+    if not normalizedQuery:
+        return []
+
+    candidates: List[str] = []
+
+    def add_candidate(candidate: str):
+        normalizedCandidate = NormalizeNumericJapaneseSurface(NormalizeText(candidate))
+        if not normalizedCandidate or normalizedCandidate == normalizedQuery or normalizedCandidate in candidates:
+            return
+        candidates.append(normalizedCandidate)
+
+    # Adjective reversals.
+    if normalizedQuery.endswith("くない"):
+        add_candidate(f"{normalizedQuery[:-3]}い")
+    if normalizedQuery.endswith("かった"):
+        add_candidate(f"{normalizedQuery[:-3]}い")
+    if normalizedQuery.endswith("くて"):
+        add_candidate(f"{normalizedQuery[:-2]}い")
+    if normalizedQuery.endswith("じゃない"):
+        add_candidate(normalizedQuery[:-4])
+    if normalizedQuery.endswith("だった"):
+        add_candidate(normalizedQuery[:-3])
+
+    # Ichidan-style te/past reversals.
+    if normalizedQuery.endswith("て"):
+        add_candidate(f"{normalizedQuery[:-1]}る")
+    if normalizedQuery.endswith("た"):
+        add_candidate(f"{normalizedQuery[:-1]}る")
+
+    for suffix, endings in GodanTeReverseMap.items():
+        if not normalizedQuery.endswith(suffix):
+            continue
+        stem = normalizedQuery[: -len(suffix)]
+        for ending in endings:
+            if ending == "する":
+                if stem.endswith("し"):
+                    add_candidate(f"{stem[:-1]}する")
+                else:
+                    add_candidate(f"{stem}する")
+            else:
+                add_candidate(f"{stem}{ending}")
+
+    for suffix, endings in GodanPastReverseMap.items():
+        if not normalizedQuery.endswith(suffix):
+            continue
+        stem = normalizedQuery[: -len(suffix)]
+        for ending in endings:
+            if ending == "する":
+                if stem.endswith("し"):
+                    add_candidate(f"{stem[:-1]}する")
+                else:
+                    add_candidate(f"{stem}する")
+            else:
+                add_candidate(f"{stem}{ending}")
+
+    for suffix in sorted(PoliteMasuEndings, key=len, reverse=True):
+        if not normalizedQuery.endswith(suffix):
+            continue
+        stem = normalizedQuery[: -len(suffix)]
+        if not stem:
+            continue
+        add_candidate(f"{stem}る")
+        stemEnding = stem[-1]
+        if stemEnding in GodanIStemReverseMap:
+            add_candidate(f"{stem[:-1]}{GodanIStemReverseMap[stemEnding]}")
+        if stem.endswith("し"):
+            add_candidate(f"{stem[:-1]}する")
+        if stem.endswith("き"):
+            add_candidate(f"{stem[:-1]}くる")
+        if stem.endswith("来"):
+            add_candidate(f"{stem}る")
+
+    if normalizedQuery.endswith("ない"):
+        stem = normalizedQuery[:-2]
+        if stem:
+            add_candidate(f"{stem}る")
+            stemEnding = stem[-1]
+            if stemEnding in GodanNegativeStemEndingMap:
+                add_candidate(f"{stem[:-1]}{GodanNegativeStemEndingMap[stemEnding]}")
+            if stem.endswith("し"):
+                add_candidate(f"{stem[:-1]}する")
+            if stem.endswith("こ"):
+                add_candidate(f"{stem[:-1]}くる")
+            if stem.endswith("来"):
+                add_candidate(f"{stem}る")
+
+    return candidates
+
+
+def SearchDictionaryEntriesByStemGuess(query: str, limit: int = 25) -> List[Dict[str, Any]]:
+    candidates = InferDictionaryStemCandidates(query)
+    if not candidates:
+        return []
+
+    scoredEntries: Dict[str, Tuple[int, Dict[str, Any]]] = {}
+    perCandidateLimit = max(5, min(limit, 12))
+
+    for candidateIndex, candidate in enumerate(candidates):
+        for resultIndex, entry in enumerate(SearchDictionaryEntriesRaw(candidate, limit=perCandidateLimit)):
+            entryId = entry.get("entry_id", "")
+            if not entryId:
+                continue
+            matchInfo = BuildDictionarySearchMatch(entry, query)
+            if matchInfo["score"] <= 0:
+                continue
+            totalScore = matchInfo["score"] - (candidateIndex * 5) - resultIndex
+            existing = scoredEntries.get(entryId)
+            if existing is None or totalScore > existing[0]:
+                scoredEntries[entryId] = (totalScore, entry)
+
+    orderedEntries = sorted(scoredEntries.values(), key=lambda item: item[0], reverse=True)
+    return [entry for _, entry in orderedEntries[:limit]]
 
 
 def GetDictionaryEntryById(entryId: str) -> Optional[Dict[str, Any]]:

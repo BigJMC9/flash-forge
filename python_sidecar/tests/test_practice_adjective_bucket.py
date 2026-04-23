@@ -136,5 +136,13 @@ class PracticeAdjectiveBucketTests(unittest.TestCase):
         self.assertNotIn("せんせかった", terms)
         self.assertNotIn("先生かった", terms)
 
+    def test_mixed_adverb_adj_na_entry_is_filtered_from_adjective_practice(self) -> None:
+        card = {
+            "dictionary_pos_tags": ["adv", "adj-na", "n"],
+            "dictionary_reading": "たぶん",
+            "kana": "たぶん",
+        }
+        self.assertEqual(detect_practice_adjective_bucket(card), "")
+
 if __name__ == "__main__":
     unittest.main()
