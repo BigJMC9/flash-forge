@@ -66,6 +66,7 @@ export async function callAction<T>(
   payload: JsonObject = {},
 ): Promise<T> {
   const response = await fetch('/api/action', {
+    credentials: 'same-origin',
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -87,6 +88,7 @@ export async function callActionWithFiles<T>(
   fileMode: UploadMode = 'array',
 ): Promise<T> {
   const response = await fetch('/api/action-with-files', {
+    credentials: 'same-origin',
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -117,6 +119,7 @@ export async function exportDeckPackage(deckId: string): Promise<{
   filename: string;
 }> {
   const response = await fetch('/api/export-deck', {
+    credentials: 'same-origin',
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

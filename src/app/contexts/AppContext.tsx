@@ -12,8 +12,10 @@ import {
   CollectionRow,
   DashboardSummary,
   DeckRow,
+  PendingInviteRow,
   PracticeModeOption,
   StatusMessage,
+  UserAccountRow,
   VerbFormOption,
   VerbTypeOption,
 } from '../types';
@@ -59,6 +61,13 @@ function normalizeSelectedId(
   return availableIds[0] ?? null;
 }
 
+interface RegisterOptions {
+  username: string;
+  email: string;
+  password: string;
+  seedFromTemplate: boolean;
+}
+
 interface AppContextType {
   appTitle: string;
   collections: CollectionRow[];
@@ -74,12 +83,27 @@ interface AppContextType {
   currentDeckId: string | null;
   currentCollection: CollectionRow | null;
   currentDeck: DeckRow | null;
+  currentUser: UserAccountRow | null;
+  pendingInvites: PendingInviteRow[];
+  isAuthenticated: boolean;
+  isAdmin: boolean;
   isLoading: boolean;
   status: StatusMessage | null;
   setStatus: (status: StatusMessage | null) => void;
   setCurrentCollection: (id: string | null) => void;
   setCurrentDeck: (id: string | null) => void;
   refreshBootstrap: () => Promise<void>;
+  login: (identifier: string, password: string) => Promise<boolean>;
+  register: (options: RegisterOptions) => Promise<boolean>;
+  logout: () => Promise<boolean>;
+  changePassword: (
+    currentPassword: string,
+    newPassword: string,
+  ) => Promise<boolean>;
+  acceptInvite: (options: {
+    inviteId?: string;
+    inviteToken?: string;
+  }) => Promise<string | null>;
   createCollection: (name: string) => Promise<boolean>;
   renameCollection: (collectionId: string, name: string) => Promise<boolean>;
   createDeck: (collectionId: string, name: string) => Promise<boolean>;
@@ -101,6 +125,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const applyBootstrap = (payload: BootstrapPayload) => {
     setBootstrap(payload);
+
+    if (!payload.auth.is_authenticated) {
+      setCurrentCollectionId(null);
+      setCurrentDeckId(null);
+      return;
+    }
 
     const collectionIds = payload.collections.map((collection) => collection.id);
     const deckIds = payload.decks.map((deck) => deck.id);
@@ -169,6 +199,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const defaultSchemaKey =
     bootstrap?.defaults.schema_key ?? 'kana_kanji_front_english_back';
   const defaultWordForm = bootstrap?.defaults.word_form ?? 'dictionary';
+  const currentUser = bootstrap?.auth.user ?? null;
+  const pendingInvites = bootstrap?.auth.pending_invites ?? [];
+  const isAuthenticated = Boolean(bootstrap?.auth.is_authenticated);
+  const isAdmin = Boolean(currentUser?.is_admin);
 
   const currentCollection =
     collections.find((collection) => collection.id === currentCollectionId) ??
@@ -193,6 +227,101 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         message: errorMessage(error),
       });
       return false;
+    }
+  };
+
+  const runAuthMutation = async (
+    action: () => Promise<void>,
+    successMessage: string,
+  ): Promise<boolean> => {
+    try {
+      setIsLoading(true);
+      await action();
+      await refreshBootstrap();
+      setStatus({
+        type: 'success',
+        message: successMessage,
+      });
+      return true;
+    } catch (error) {
+      setStatus({
+        type: 'error',
+        message: errorMessage(error),
+      });
+      setIsLoading(false);
+      return false;
+    }
+  };
+
+  const login = async (
+    identifier: string,
+    password: string,
+  ): Promise<boolean> =>
+    runAuthMutation(async () => {
+      await callAction('login_user', {
+        identifier,
+        password,
+      });
+    }, 'Signed in.');
+
+  const register = async ({
+    username,
+    email,
+    password,
+    seedFromTemplate,
+  }: RegisterOptions): Promise<boolean> =>
+    runAuthMutation(async () => {
+      await callAction('register_user', {
+        username,
+        email,
+        password,
+        seed_from_template: seedFromTemplate,
+      });
+    }, 'Account created.');
+
+  const logout = async (): Promise<boolean> =>
+    runAuthMutation(async () => {
+      await callAction('logout_user');
+    }, 'Signed out.');
+
+  const changePassword = async (
+    currentPassword: string,
+    newPassword: string,
+  ): Promise<boolean> =>
+    runMutation(async () => {
+      await callAction('change_password', {
+        current_password: currentPassword,
+        new_password: newPassword,
+      });
+    }, 'Password updated.');
+
+  const acceptInvite = async ({
+    inviteId,
+    inviteToken,
+  }: {
+    inviteId?: string;
+    inviteToken?: string;
+  }): Promise<string | null> => {
+    try {
+      const response = await callAction<{ accepted: boolean; deck_id: string }>(
+        'accept_deck_invite',
+        {
+          invite_id: inviteId,
+          invite_token: inviteToken,
+        },
+      );
+      await refreshBootstrap();
+      setStatus({
+        type: 'success',
+        message: 'Deck invite accepted.',
+      });
+      return response.deck_id ?? null;
+    } catch (error) {
+      setStatus({
+        type: 'error',
+        message: errorMessage(error),
+      });
+      return null;
     }
   };
 
@@ -233,7 +362,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const value = useMemo<AppContextType>(
     () => ({
-      appTitle: bootstrap?.app_title ?? 'Anki Deck Creator',
+      appTitle: bootstrap?.app_title ?? 'Flash Forge',
       collections,
       decks,
       dashboard,
@@ -247,12 +376,21 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       currentDeckId,
       currentCollection,
       currentDeck,
+      currentUser,
+      pendingInvites,
+      isAuthenticated,
+      isAdmin,
       isLoading,
       status,
       setStatus,
       setCurrentCollection: setCurrentCollectionId,
       setCurrentDeck: setCurrentDeckId,
       refreshBootstrap,
+      login,
+      register,
+      logout,
+      changePassword,
+      acceptInvite,
       createCollection,
       renameCollection,
       createDeck,
@@ -262,20 +400,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       bootstrap?.app_title,
       cardSchemas,
       collections,
-      createCollection,
-      createDeck,
       currentCollection,
       currentCollectionId,
       currentDeck,
       currentDeckId,
+      currentUser,
       dashboard,
       decks,
       defaultSchemaKey,
       defaultWordForm,
+      isAdmin,
+      isAuthenticated,
       isLoading,
+      pendingInvites,
       practiceModes,
-      renameCollection,
-      renameDeck,
       status,
       verbForms,
       verbTypes,

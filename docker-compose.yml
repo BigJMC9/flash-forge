@@ -1,0 +1,29 @@
+services:
+  app:
+    build:
+      context: .
+    environment:
+      HOST: 0.0.0.0
+      PORT: 3000
+      COOKIE_SECURE: "1"
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+    expose:
+      - "3000"
+    restart: unless-stopped
+    volumes:
+      - flash_forge_workspace:/app/anki_workspace
+
+  nginx:
+    image: nginx:1.27-alpine
+    depends_on:
+      - app
+    ports:
+      - "80:80"
+      - "443:443"
+    restart: unless-stopped
+    volumes:
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./nginx/certs:/etc/nginx/certs:ro
+
+volumes:
+  flash_forge_workspace:

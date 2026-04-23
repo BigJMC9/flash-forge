@@ -1,5 +1,10 @@
-import { createBrowserRouter } from 'react-router';
+import type { ReactNode } from 'react';
+import { Navigate, createBrowserRouter } from 'react-router';
 import { Layout } from './components/Layout';
+import { useApp } from './contexts/AppContext';
+import { Home } from './pages/Home';
+import { Login } from './pages/Login';
+import { Register } from './pages/Register';
 import { Dashboard } from './pages/Dashboard';
 import { Collections } from './pages/Collections';
 import { Dictionary } from './pages/Dictionary';
@@ -11,138 +16,196 @@ import { Practice } from './pages/Practice';
 import { ImportExport } from './pages/ImportExport';
 import { Reading } from './pages/Reading';
 import { Conversation } from './pages/Conversation';
+import { Account } from './pages/Account';
+import { Admin } from './pages/Admin';
 
-function Root() {
+function LoadingState() {
   return (
     <Layout>
-      <Dashboard />
+      <div className="rounded-2xl border border-gray-200 bg-white p-8 text-center text-gray-500">
+        Loading workspace…
+      </div>
     </Layout>
   );
 }
 
-function CollectionsPage() {
-  return (
-    <Layout>
-      <Collections />
-    </Layout>
-  );
+function PublicPage({ children }: { children: ReactNode }) {
+  return <Layout>{children}</Layout>;
 }
 
-function DictionaryPage() {
-  return (
-    <Layout>
-      <Dictionary />
-    </Layout>
-  );
+function PublicOnlyPage({ children }: { children: ReactNode }) {
+  const { isAuthenticated, isLoading } = useApp();
+
+  if (isLoading) {
+    return <LoadingState />;
+  }
+
+  if (isAuthenticated) {
+    return <Navigate to="/dashboard" replace />;
+  }
+
+  return <Layout>{children}</Layout>;
 }
 
-function ComposerPage() {
-  return (
-    <Layout>
-      <Composer />
-    </Layout>
-  );
+function PrivatePage({ children }: { children: ReactNode }) {
+  const { isAuthenticated, isLoading } = useApp();
+
+  if (isLoading) {
+    return <LoadingState />;
+  }
+
+  if (!isAuthenticated) {
+    return <Navigate to="/login" replace />;
+  }
+
+  return <Layout>{children}</Layout>;
 }
 
-function GlobalLibraryPage() {
-  return (
-    <Layout>
-      <GlobalLibrary />
-    </Layout>
-  );
-}
+function AdminPage({ children }: { children: ReactNode }) {
+  const { isAdmin, isAuthenticated, isLoading } = useApp();
 
-function DeckOperationsPage() {
-  return (
-    <Layout>
-      <DeckOperations />
-    </Layout>
-  );
-}
+  if (isLoading) {
+    return <LoadingState />;
+  }
 
-function RevisionPage() {
-  return (
-    <Layout>
-      <Revision />
-    </Layout>
-  );
-}
+  if (!isAuthenticated) {
+    return <Navigate to="/login" replace />;
+  }
 
-function PracticePage() {
-  return (
-    <Layout>
-      <Practice />
-    </Layout>
-  );
-}
+  if (!isAdmin) {
+    return <Navigate to="/dashboard" replace />;
+  }
 
-function ReadingPage() {
-  return (
-    <Layout>
-      <Reading />
-    </Layout>
-  );
-}
-
-function ConversationPage() {
-  return (
-    <Layout>
-      <Conversation />
-    </Layout>
-  );
-}
-
-function ImportExportPage() {
-  return (
-    <Layout>
-      <ImportExport />
-    </Layout>
-  );
+  return <Layout>{children}</Layout>;
 }
 
 export const router = createBrowserRouter([
   {
     path: '/',
-    Component: Root,
+    Component: () => (
+      <PublicPage>
+        <Home />
+      </PublicPage>
+    ),
+  },
+  {
+    path: '/login',
+    Component: () => (
+      <PublicOnlyPage>
+        <Login />
+      </PublicOnlyPage>
+    ),
+  },
+  {
+    path: '/register',
+    Component: () => (
+      <PublicOnlyPage>
+        <Register />
+      </PublicOnlyPage>
+    ),
+  },
+  {
+    path: '/dashboard',
+    Component: () => (
+      <PrivatePage>
+        <Dashboard />
+      </PrivatePage>
+    ),
   },
   {
     path: '/collections',
-    Component: CollectionsPage,
+    Component: () => (
+      <PrivatePage>
+        <Collections />
+      </PrivatePage>
+    ),
   },
   {
     path: '/dictionary',
-    Component: DictionaryPage,
+    Component: () => (
+      <PrivatePage>
+        <Dictionary />
+      </PrivatePage>
+    ),
   },
   {
     path: '/composer',
-    Component: ComposerPage,
+    Component: () => (
+      <PrivatePage>
+        <Composer />
+      </PrivatePage>
+    ),
   },
   {
     path: '/global-library',
-    Component: GlobalLibraryPage,
+    Component: () => (
+      <PrivatePage>
+        <GlobalLibrary />
+      </PrivatePage>
+    ),
   },
   {
     path: '/deck/:deckId',
-    Component: DeckOperationsPage,
+    Component: () => (
+      <PrivatePage>
+        <DeckOperations />
+      </PrivatePage>
+    ),
   },
   {
     path: '/revision/:deckId',
-    Component: RevisionPage,
+    Component: () => (
+      <PrivatePage>
+        <Revision />
+      </PrivatePage>
+    ),
   },
   {
     path: '/practice/:deckId',
-    Component: PracticePage,
+    Component: () => (
+      <PrivatePage>
+        <Practice />
+      </PrivatePage>
+    ),
   },
   {
     path: '/reading/:deckId',
-    Component: ReadingPage,
+    Component: () => (
+      <PrivatePage>
+        <Reading />
+      </PrivatePage>
+    ),
   },
   {
     path: '/conversation/:deckId',
-    Component: ConversationPage,
+    Component: () => (
+      <PrivatePage>
+        <Conversation />
+      </PrivatePage>
+    ),
   },
   {
     path: '/import-export',
-    Component: ImportExportPage,
+    Component: () => (
+      <PrivatePage>
+        <ImportExport />
+      </PrivatePage>
+    ),
+  },
+  {
+    path: '/account',
+    Component: () => (
+      <PrivatePage>
+        <Account />
+      </PrivatePage>
+    ),
+  },
+  {
+    path: '/admin',
+    Component: () => (
+      <AdminPage>
+        <Admin />
+      </AdminPage>
+    ),
   },
 ]);

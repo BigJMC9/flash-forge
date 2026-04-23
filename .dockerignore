@@ -1,0 +1,14 @@
+.git
+.gitignore
+node_modules
+dist
+anki_workspace
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.env
+.env.*
+coverage
+tmp
+*.log

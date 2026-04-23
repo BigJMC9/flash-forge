@@ -121,6 +121,9 @@ export function Dashboard() {
                     Cards
                   </th>
                   <th className="text-left px-6 py-3 text-sm text-gray-600">
+                    Access
+                  </th>
+                  <th className="text-left px-6 py-3 text-sm text-gray-600">
                     Actions
                   </th>
                 </tr>
@@ -131,6 +134,9 @@ export function Dashboard() {
                     <td className="px-6 py-4">{deck.collection_name}</td>
                     <td className="px-6 py-4">{deck.name}</td>
                     <td className="px-6 py-4">{deck.card_count}</td>
+                    <td className="px-6 py-4 text-sm text-gray-600">
+                      {deck.is_owner ? 'Owner' : 'Shared'}
+                    </td>
                     <td className="px-6 py-4">
                       <div className="flex gap-4 text-sm">
                         <button

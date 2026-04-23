@@ -2,15 +2,20 @@ import { useEffect, useMemo, useState } from 'react';
 import { useParams } from 'react-router';
 import {
   CheckSquare,
+  Copy,
   Edit2,
+  MailPlus,
+  Shield,
   Search,
   Square,
   Trash2,
+  UserMinus,
+  Users,
   Upload,
 } from 'lucide-react';
 import { useApp } from '../contexts/AppContext';
 import { callAction, callActionWithFiles, errorMessage } from '../lib/backend';
-import { DeckCardRow } from '../types';
+import { DeckCardRow, DeckCollaboratorRow, DeckInviteRow } from '../types';
 
 type EditForm = {
   kanji: string;
@@ -47,6 +52,11 @@ export function DeckOperations() {
   const [replaceTarget, setReplaceTarget] = useState('english');
   const [replaceMediaType, setReplaceMediaType] = useState('image');
   const [replaceFiles, setReplaceFiles] = useState<File[]>([]);
+  const [collaborators, setCollaborators] = useState<DeckCollaboratorRow[]>([]);
+  const [invites, setInvites] = useState<DeckInviteRow[]>([]);
+  const [inviteEmail, setInviteEmail] = useState('');
+  const [inviteUsername, setInviteUsername] = useState('');
+  const [lastInviteToken, setLastInviteToken] = useState('');
 
   const deck = decks.find((item) => item.id === deckId) ?? null;
 
@@ -92,12 +102,102 @@ export function DeckOperations() {
     }
   };
 
+  const loadCollaboration = async () => {
+    if (!deckId) {
+      setCollaborators([]);
+      setInvites([]);
+      return;
+    }
+
+    try {
+      const response = await callAction<{
+        collaborators: DeckCollaboratorRow[];
+        invites: DeckInviteRow[];
+        is_owner: boolean;
+      }>('list_deck_collaboration', {
+        deck_id: deckId,
+      });
+      setCollaborators(response.collaborators ?? []);
+      setInvites(response.invites ?? []);
+    } catch (error) {
+      setStatus({
+        type: 'error',
+        message: errorMessage(error),
+      });
+    }
+  };
+
   useEffect(() => {
     if (deckId) {
       setCurrentDeck(deckId);
       void loadRows();
+      void loadCollaboration();
     }
   }, [deckId]);
+
+  const handleCreateInvite = async () => {
+    if (!deck?.is_owner) {
+      return;
+    }
+
+    try {
+      const response = await callAction<{
+        invite: DeckInviteRow & { token: string };
+      }>('create_deck_invite', {
+        deck_id: deckId,
+        invited_email: inviteEmail,
+        invited_username: inviteUsername,
+      });
+      setInviteEmail('');
+      setInviteUsername('');
+      setLastInviteToken(response.invite?.token ?? '');
+      await loadCollaboration();
+      setStatus({
+        type: 'success',
+        message: 'Deck invite created.',
+      });
+    } catch (error) {
+      setStatus({
+        type: 'error',
+        message: errorMessage(error),
+      });
+    }
+  };
+
+  const handleRemoveCollaborator = async (collaboratorUserId: string) => {
+    if (!deck?.is_owner) {
+      return;
+    }
+
+    try {
+      await callAction('remove_deck_collaborator', {
+        deck_id: deckId,
+        collaborator_user_id: collaboratorUserId,
+      });
+      await loadCollaboration();
+      setStatus({
+        type: 'success',
+        message: 'Collaborator removed.',
+      });
+    } catch (error) {
+      setStatus({
+        type: 'error',
+        message: errorMessage(error),
+      });
+    }
+  };
+
+  const handleCopyInvite = async () => {
+    if (!lastInviteToken || !navigator?.clipboard) {
+      return;
+    }
+
+    await navigator.clipboard.writeText(lastInviteToken);
+    setStatus({
+      type: 'success',
+      message: 'Invite token copied to clipboard.',
+    });
+  };
 
   const toggleSelection = (cardId: string) => {
     setSelectedIds((previous) => {
@@ -278,8 +378,142 @@ export function DeckOperations() {
     <div className="max-w-6xl">
       <h2 className="text-2xl font-semibold mb-2">{deck.name}</h2>
       <p className="text-gray-600 mb-6">
-        {deck.collection_name} · {deck.card_count} cards
+        {deck.collection_name} · {deck.card_count} cards ·{' '}
+        {deck.is_owner ? 'Owner' : 'Shared collaborator'}
       </p>
+
+      <div className="bg-white rounded-lg p-6 border border-gray-200 mb-6">
+        <div className="flex items-start justify-between gap-4 mb-4">
+          <div>
+            <h3 className="font-semibold flex items-center gap-2">
+              <Users className="w-5 h-5 text-blue-600" />
+              Collaboration
+            </h3>
+            <p className="text-sm text-gray-600 mt-1">
+              {deck.is_owner
+                ? 'Invite other users to work on this deck without exposing the rest of your workspace.'
+                : 'You can edit this shared deck, but only the owner can manage collaborators.'}
+            </p>
+          </div>
+          <div className="rounded-full bg-gray-100 px-3 py-1 text-sm text-gray-700">
+            {deck.is_owner ? 'Owner access' : 'Shared access'}
+          </div>
+        </div>
+
+        {deck.is_owner && (
+          <div className="grid gap-4 lg:grid-cols-[1fr_1fr_auto] items-end mb-5">
+            <div>
+              <label className="block text-sm text-gray-600 mb-2">Invite by email</label>
+              <input
+                type="email"
+                value={inviteEmail}
+                onChange={(event) => setInviteEmail(event.target.value)}
+                placeholder="study-partner@example.com"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+            <div>
+              <label className="block text-sm text-gray-600 mb-2">
+                Invite by username
+              </label>
+              <input
+                type="text"
+                value={inviteUsername}
+                onChange={(event) => setInviteUsername(event.target.value)}
+                placeholder="study_partner"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+            <button
+              onClick={() => void handleCreateInvite()}
+              className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2"
+            >
+              <MailPlus className="w-4 h-4" />
+              Create Invite
+            </button>
+          </div>
+        )}
+
+        {lastInviteToken && deck.is_owner && (
+          <div className="mb-5 rounded-lg border border-blue-200 bg-blue-50 p-4">
+            <div className="text-sm text-blue-900 font-medium mb-2">
+              Share this raw invite token with the target user
+            </div>
+            <div className="flex flex-col gap-3 md:flex-row md:items-center">
+              <code className="flex-1 rounded bg-white px-3 py-2 text-sm text-blue-950 border border-blue-200">
+                {lastInviteToken}
+              </code>
+              <button
+                onClick={() => void handleCopyInvite()}
+                className="px-4 py-2 border border-blue-300 rounded-lg text-blue-700 hover:bg-white flex items-center gap-2"
+              >
+                <Copy className="w-4 h-4" />
+                Copy
+              </button>
+            </div>
+          </div>
+        )}
+
+        <div className="grid gap-4 lg:grid-cols-2">
+          <div className="rounded-lg border border-gray-200 p-4">
+            <div className="font-medium mb-3 flex items-center gap-2">
+              <Shield className="w-4 h-4 text-gray-700" />
+              Collaborators
+            </div>
+            {collaborators.length === 0 ? (
+              <div className="text-sm text-gray-500">No collaborators yet.</div>
+            ) : (
+              <div className="space-y-3">
+                {collaborators.map((collaborator) => (
+                  <div
+                    key={collaborator.id}
+                    className="flex items-center justify-between gap-3 rounded-lg border border-gray-200 px-3 py-3"
+                  >
+                    <div>
+                      <div className="font-medium">{collaborator.username}</div>
+                      <div className="text-sm text-gray-600">
+                        {collaborator.email} · {collaborator.role}
+                      </div>
+                    </div>
+                    {deck.is_owner && (
+                      <button
+                        onClick={() => void handleRemoveCollaborator(collaborator.id)}
+                        className="text-red-600 hover:text-red-700 flex items-center gap-1 text-sm"
+                      >
+                        <UserMinus className="w-4 h-4" />
+                        Remove
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="rounded-lg border border-gray-200 p-4">
+            <div className="font-medium mb-3">Active Invites</div>
+            {invites.length === 0 ? (
+              <div className="text-sm text-gray-500">No outstanding invites.</div>
+            ) : (
+              <div className="space-y-3">
+                {invites.map((invite) => (
+                  <div
+                    key={invite.id}
+                    className="rounded-lg border border-gray-200 px-3 py-3"
+                  >
+                    <div className="font-medium">
+                      {invite.invited_username || invite.invited_email || 'Untargeted invite'}
+                    </div>
+                    <div className="text-sm text-gray-600">
+                      Preview: {invite.token_preview}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
 
       <div className="bg-white rounded-lg p-6 border border-gray-200 mb-6">
         <div className="flex gap-3">

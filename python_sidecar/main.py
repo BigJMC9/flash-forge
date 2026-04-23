@@ -36,39 +36,59 @@ from AnkiDeckBuilder.AppConfig import (
 )
 from AnkiDeckBuilder.CsvService import ImportCsvCards
 from AnkiDeckBuilder.DatabaseService import (
+    AcceptDeckInvite,
+    AcceptDeckInviteById,
     AddCard,
     AddGlobalCard,
+    AuthenticateUser,
+    CloneTemplateDataToUser,
+    CountUsers,
     CountCardsInDeck,
     CountGlobalCards,
+    CreateDeckInvite,
     CreateConversationSession,
     CreateCollection,
     CreateDeck,
+    CreateUser,
+    CreateUserSession,
     DeckHasCandidate,
     DeckHasKanjiWordForm,
     DecodeJsonStringList,
     DeleteCardsByIds,
     DeleteGlobalCardsByIds,
+    DeleteUserSession,
     GetDashboardRows,
     GetAiScenario,
     GetConversationSession,
     GetDeckCardCounts,
+    GetDeckAccessRow,
     GetDeckCards,
     GetReadingMaterialByScenarioId,
     GetTotalCardCount,
     GetTotalDeckCount,
+    GetSessionUser,
+    GetUserById,
     IncrementAiScenarioCompletion,
     IncrementAiScenarioUsage,
     ImportDeckCardsToGlobal,
     ImportGlobalCardsToDeck,
     ListAiScenarios,
     ListCollections,
+    ListDeckCollaborators,
+    ListDeckInvites,
     ListDecks,
     ListGlobalCards,
+    ListPendingInvitesForUser,
+    ListUsers,
     OpenDatabaseConnection,
     RenameCollection,
     RenameDeck,
+    RemoveDeckCollaborator,
     SaveAiScenario,
     SaveReadingMaterial,
+    SerializeUserRow,
+    UpdateUserPassword,
+    UpdateUserPermissions,
     UpdateConversationSession,
     UpdateCardContent,
     UpdateCardField,
@@ -114,6 +134,14 @@ load_dotenv(PROJECT_ROOT / ".env")
 
 
 _CONNECTION: Optional[sqlite3.Connection] = None
+_CURRENT_USER: Optional[Dict[str, Any]] = None
+_CURRENT_SESSION_TOKEN: str = ""
+
+PUBLIC_ACTIONS = {
+    "bootstrap",
+    "login_user",
+    "register_user",
+}
 
 PRACTICE_BASE_CORRECT_POINTS = 10
 PRACTICE_INCORRECT_PENALTY_POINTS = 2
@@ -210,6 +238,80 @@ def get_connection() -> sqlite3.Connection:
         EnsureWorkspaceDirectories()
         _CONNECTION = OpenDatabaseConnection()
     return _CONNECTION
+
+
+def set_request_user(user: Optional[sqlite3.Row], session_token: str = "") -> None:
+    global _CURRENT_USER, _CURRENT_SESSION_TOKEN
+    _CURRENT_SESSION_TOKEN = normalize_text(session_token)
+    _CURRENT_USER = SerializeUserRow(user) if user is not None else None
+
+
+def get_request_user() -> Optional[Dict[str, Any]]:
+    return _CURRENT_USER
+
+
+def require_request_user() -> Dict[str, Any]:
+    user = get_request_user()
+    if not user:
+        raise RuntimeError("Authentication required.")
+    return user
+
+
+def require_admin_user() -> Dict[str, Any]:
+    user = require_request_user()
+    if not bool(user.get("is_admin")):
+        raise RuntimeError("Administrator access is required.")
+    return user
+
+
+def require_ai_user() -> Dict[str, Any]:
+    user = require_request_user()
+    if not bool(user.get("can_use_ai")):
+        raise RuntimeError("Your account does not have AI privileges enabled.")
+    return user
+
+
+def get_request_user_id() -> str:
+    user = require_request_user()
+    return normalize_text(user.get("id", ""))
+
+
+def get_optional_request_user_id() -> str:
+    user = get_request_user()
+    return normalize_text(user.get("id", "")) if user else ""
+
+
+def require_owned_collection(collection_id: str) -> sqlite3.Row:
+    connection = get_connection()
+    row = connection.execute(
+        """
+        SELECT id, owner_user_id, COALESCE(NULLIF(display_name, ''), name) AS name
+        FROM collections
+        WHERE id = ? AND owner_user_id = ?
+        LIMIT 1
+        """,
+        (normalize_text(collection_id), get_request_user_id()),
+    ).fetchone()
+    if row is None:
+        raise RuntimeError("Collection not found or not owned by the current user.")
+    return row
+
+
+def require_accessible_deck(deck_id: str, require_write: bool = True) -> sqlite3.Row:
+    deck_row = GetDeckAccessRow(get_connection(), normalize_text(deck_id), get_request_user_id())
+    if deck_row is None or not bool(deck_row["can_access"]):
+        raise RuntimeError("Deck not found or access denied.")
+    if require_write and not bool(deck_row["can_access"]):
+        raise RuntimeError("Deck write access denied.")
+    return deck_row
+
+
+def build_bootstrap_defaults() -> Dict[str, Any]:
+    return {
+        "schema_key": "kana_kanji_front_english_back",
+        "word_form": "dictionary",
+        "practice_modes": PRACTICE_MODE_OPTIONS,
+    }
 
 
 def normalize_text(value: Any) -> str:
@@ -853,6 +955,7 @@ def serialize_deck(row: Dict[str, Any], card_count_by_id: Dict[str, int]) -> Dic
         "name": deck_name,
         "label": f"{collection_name} :: {deck_name}" if collection_name else deck_name,
         "card_count": int(card_count_by_id.get(normalize_text(row.get("id", "")), 0)),
+        "is_owner": bool(row.get("is_owner", True)),
     }
 
 
@@ -952,12 +1055,9 @@ def choose_surface_by_word_form(
 
 def action_bootstrap(_: Dict[str, Any]) -> Dict[str, Any]:
     connection = get_connection()
-    collections = ListCollections(connection)
-    decks = ListDecks(connection, includeCollectionName=True)
-    card_count_by_id = GetDeckCardCounts(connection)
-    deck_rows = [serialize_deck(deck, card_count_by_id) for deck in decks]
+    user = get_request_user()
 
-    return {
+    base_payload = {
         "app_title": AppTitle,
         "card_schemas": [{"key": key, "label": definition["Label"]} for key, definition in CardSchemas.items()],
         "verb_forms": [{"key": key, "label": label} for key, label in VerbFormLabels.items()],
@@ -972,35 +1072,239 @@ def action_bootstrap(_: Dict[str, Any]) -> Dict[str, Any]:
             {"key": "na_adj", "label": "Na-adjective"},
             {"key": "noun", "label": "Noun"},
         ],
+        "defaults": build_bootstrap_defaults(),
+        "auth": {
+            "is_authenticated": bool(user),
+            "user": user,
+            "pending_invites": [],
+        },
+    }
+
+    if not user:
+        return {
+            **base_payload,
+            "collections": [],
+            "decks": [],
+            "dashboard": {
+                "collection_count": 0,
+                "deck_count": 0,
+                "card_count": 0,
+                "global_card_count": 0,
+                "rows": [],
+            },
+        }
+
+    user_id = normalize_text(user.get("id", ""))
+    collections = ListCollections(connection, user_id)
+    decks = ListDecks(connection, user_id, includeCollectionName=True)
+    card_count_by_id = GetDeckCardCounts(connection, user_id)
+    deck_rows = [serialize_deck(deck, card_count_by_id) for deck in decks]
+
+    return {
+        **base_payload,
         "collections": [serialize_collection(row) for row in collections],
         "decks": deck_rows,
         "dashboard": {
             "collection_count": len(collections),
-            "deck_count": GetTotalDeckCount(connection),
-            "card_count": GetTotalCardCount(connection),
-            "global_card_count": CountGlobalCards(connection),
+            "deck_count": GetTotalDeckCount(connection, user_id),
+            "card_count": GetTotalCardCount(connection, user_id),
+            "global_card_count": CountGlobalCards(connection, user_id),
             "rows": [
                 {
                     "collection_name": row["collection_name"],
                     "deck_name": row["deck_name"],
                     "card_count": int(row["card_count"]),
                 }
-                for row in GetDashboardRows(connection)
+                for row in GetDashboardRows(connection, user_id)
             ],
         },
-        "defaults": {
-            "schema_key": "kana_kanji_front_english_back",
-            "word_form": "dictionary",
-            "practice_modes": PRACTICE_MODE_OPTIONS,
+        "auth": {
+            "is_authenticated": True,
+            "user": user,
+            "pending_invites": ListPendingInvitesForUser(
+                connection,
+                user_id,
+                normalize_text(user.get("email", "")),
+                normalize_text(user.get("username", "")),
+            ),
         },
     }
+
+
+def action_register_user(payload: Dict[str, Any]) -> Dict[str, Any]:
+    username = normalize_text(payload.get("username", ""))
+    email = normalize_text(payload.get("email", ""))
+    password = normalize_text(payload.get("password", ""))
+    seed_from_template = bool(payload.get("seed_from_template", True))
+
+    if len(password) < 8:
+        raise RuntimeError("Password must be at least 8 characters.")
+
+    connection = get_connection()
+    is_first_user = CountUsers(connection) == 0
+    user_row = CreateUser(
+        connection,
+        username,
+        email,
+        password,
+        isAdmin=is_first_user,
+        canUseAi=is_first_user,
+    )
+    if seed_from_template:
+        CloneTemplateDataToUser(connection, user_row["id"])
+    session_token = CreateUserSession(connection, user_row["id"])
+    return {
+        "registered": True,
+        "session_token": session_token,
+        "user": SerializeUserRow(user_row),
+    }
+
+
+def action_login_user(payload: Dict[str, Any]) -> Dict[str, Any]:
+    identifier = normalize_text(payload.get("identifier", ""))
+    password = normalize_text(payload.get("password", ""))
+    if not identifier or not password:
+        raise RuntimeError("identifier and password are required.")
+
+    user_row = AuthenticateUser(get_connection(), identifier, password)
+    if user_row is None:
+        raise RuntimeError("Invalid username/email or password.")
+    session_token = CreateUserSession(get_connection(), user_row["id"])
+    return {
+        "authenticated": True,
+        "session_token": session_token,
+        "user": SerializeUserRow(user_row),
+    }
+
+
+def action_logout_user(_: Dict[str, Any]) -> Dict[str, Any]:
+    if _CURRENT_SESSION_TOKEN:
+        DeleteUserSession(get_connection(), _CURRENT_SESSION_TOKEN)
+    set_request_user(None, "")
+    return {"logged_out": True}
+
+
+def action_change_password(payload: Dict[str, Any]) -> Dict[str, Any]:
+    user = require_request_user()
+    current_password = normalize_text(payload.get("current_password", ""))
+    new_password = normalize_text(payload.get("new_password", ""))
+    if len(new_password) < 8:
+        raise RuntimeError("New password must be at least 8 characters.")
+
+    user_row = AuthenticateUser(get_connection(), user["username"], current_password)
+    if user_row is None or normalize_text(user_row["id"]) != normalize_text(user["id"]):
+        raise RuntimeError("Current password is incorrect.")
+    UpdateUserPassword(get_connection(), user["id"], new_password)
+    return {"updated": True}
+
+
+def action_list_users(_: Dict[str, Any]) -> Dict[str, Any]:
+    require_admin_user()
+    return {"rows": ListUsers(get_connection())}
+
+
+def action_admin_update_user(payload: Dict[str, Any]) -> Dict[str, Any]:
+    require_admin_user()
+    user_id = normalize_text(payload.get("user_id", ""))
+    if not user_id:
+        raise RuntimeError("user_id is required.")
+    UpdateUserPermissions(
+        get_connection(),
+        user_id,
+        isAdmin=payload.get("is_admin") if "is_admin" in payload else None,
+        canUseAi=payload.get("can_use_ai") if "can_use_ai" in payload else None,
+        isActive=payload.get("is_active") if "is_active" in payload else None,
+    )
+    user_row = GetUserById(get_connection(), user_id)
+    if user_row is None:
+        raise RuntimeError("User not found.")
+    return {"updated": True, "user": SerializeUserRow(user_row)}
+
+
+def action_admin_reset_password(payload: Dict[str, Any]) -> Dict[str, Any]:
+    require_admin_user()
+    user_id = normalize_text(payload.get("user_id", ""))
+    new_password = normalize_text(payload.get("new_password", ""))
+    if not user_id or len(new_password) < 8:
+        raise RuntimeError("user_id and a password of at least 8 characters are required.")
+    UpdateUserPassword(get_connection(), user_id, new_password)
+    return {"updated": True}
+
+
+def action_list_pending_invites(_: Dict[str, Any]) -> Dict[str, Any]:
+    user = require_request_user()
+    return {
+        "rows": ListPendingInvitesForUser(
+            get_connection(),
+            user["id"],
+            user["email"],
+            user["username"],
+        )
+    }
+
+
+def action_accept_deck_invite(payload: Dict[str, Any]) -> Dict[str, Any]:
+    invite_token = normalize_text(payload.get("invite_token", ""))
+    invite_id = normalize_text(payload.get("invite_id", ""))
+    user = require_request_user()
+    if invite_token:
+        invite = AcceptDeckInvite(get_connection(), invite_token, user["id"])
+    elif invite_id:
+        invite = AcceptDeckInviteById(
+            get_connection(),
+            invite_id,
+            user["id"],
+            user["email"],
+            user["username"],
+        )
+    else:
+        raise RuntimeError("invite_token or invite_id is required.")
+    if invite is None:
+        raise RuntimeError("Invite is invalid or expired.")
+    return {"accepted": True, "deck_id": invite["deck_id"]}
+
+
+def action_list_deck_collaboration(payload: Dict[str, Any]) -> Dict[str, Any]:
+    deck_id = normalize_text(payload.get("deck_id", ""))
+    deck_row = require_accessible_deck(deck_id, require_write=False)
+    return {
+        "deck_id": deck_id,
+        "is_owner": bool(deck_row["is_owner"]),
+        "collaborators": ListDeckCollaborators(get_connection(), deck_id),
+        "invites": ListDeckInvites(get_connection(), deck_id) if bool(deck_row["is_owner"]) else [],
+    }
+
+
+def action_create_deck_invite(payload: Dict[str, Any]) -> Dict[str, Any]:
+    deck_id = normalize_text(payload.get("deck_id", ""))
+    deck_row = require_accessible_deck(deck_id, require_write=True)
+    if not bool(deck_row["is_owner"]):
+        raise RuntimeError("Only the deck owner can create invites.")
+    invite = CreateDeckInvite(
+        get_connection(),
+        deck_id,
+        get_request_user_id(),
+        invitedEmail=normalize_text(payload.get("invited_email", "")),
+        invitedUsername=normalize_text(payload.get("invited_username", "")),
+    )
+    return {"invite": invite}
+
+
+def action_remove_deck_collaborator(payload: Dict[str, Any]) -> Dict[str, Any]:
+    deck_id = normalize_text(payload.get("deck_id", ""))
+    collaborator_user_id = normalize_text(payload.get("collaborator_user_id", ""))
+    deck_row = require_accessible_deck(deck_id, require_write=True)
+    if not bool(deck_row["is_owner"]):
+        raise RuntimeError("Only the deck owner can remove collaborators.")
+    removed = RemoveDeckCollaborator(get_connection(), deck_id, collaborator_user_id)
+    return {"removed": int(removed)}
 
 
 def action_create_collection(payload: Dict[str, Any]) -> Dict[str, Any]:
     name = normalize_text(payload.get("name", ""))
     if not name:
         raise RuntimeError("Collection name is required.")
-    CreateCollection(get_connection(), name)
+    CreateCollection(get_connection(), name, get_request_user_id())
     return {"created": True, "name": name}
 
 
@@ -1011,7 +1315,8 @@ def action_rename_collection(payload: Dict[str, Any]) -> Dict[str, Any]:
         raise RuntimeError("collection_id is required.")
     if not name:
         raise RuntimeError("New collection name is required.")
-    RenameCollection(get_connection(), collection_id, name)
+    require_owned_collection(collection_id)
+    RenameCollection(get_connection(), collection_id, name, get_request_user_id())
     return {"updated": True, "collection_id": collection_id, "name": name}
 
 
@@ -1022,7 +1327,8 @@ def action_create_deck(payload: Dict[str, Any]) -> Dict[str, Any]:
         raise RuntimeError("collection_id is required.")
     if not name:
         raise RuntimeError("Deck name is required.")
-    CreateDeck(get_connection(), collection_id, name)
+    require_owned_collection(collection_id)
+    CreateDeck(get_connection(), collection_id, name, get_request_user_id())
     return {"created": True, "collection_id": collection_id, "name": name}
 
 
@@ -1033,7 +1339,10 @@ def action_rename_deck(payload: Dict[str, Any]) -> Dict[str, Any]:
         raise RuntimeError("deck_id is required.")
     if not name:
         raise RuntimeError("New deck name is required.")
-    RenameDeck(get_connection(), deck_id, name)
+    deck_row = require_accessible_deck(deck_id, require_write=True)
+    if not bool(deck_row["is_owner"]):
+        raise RuntimeError("Only the deck owner can rename the deck.")
+    RenameDeck(get_connection(), deck_id, name, get_request_user_id())
     return {"updated": True, "deck_id": deck_id, "name": name}
 
 
@@ -1064,8 +1373,11 @@ def action_add_dictionary_entries(payload: Dict[str, Any]) -> Dict[str, Any]:
         raise RuntimeError("Select one or more dictionary entries first.")
     if destination == "deck" and not deck_id:
         raise RuntimeError("deck_id is required when destination is deck.")
+    if destination == "deck":
+        require_accessible_deck(deck_id, require_write=True)
 
     connection = get_connection()
+    user_id = get_request_user_id()
     added = 0
     skipped = 0
     missing: List[str] = []
@@ -1084,6 +1396,7 @@ def action_add_dictionary_entries(payload: Dict[str, Any]) -> Dict[str, Any]:
                 notes=notes,
                 englishOverride=english_override,
             )
+            card_payload["owner_user_id"] = user_id
             is_added = AddGlobalCard(connection, card_payload)
         else:
             card_payload = BuildCardFromDictionaryEntry(
@@ -1157,6 +1470,8 @@ def action_add_manual_card(payload: Dict[str, Any]) -> Dict[str, Any]:
         raise RuntimeError("kanji, kana, and english are required.")
     if destination == "deck" and not deck_id:
         raise RuntimeError("deck_id is required when destination is deck.")
+    if destination == "deck":
+        require_accessible_deck(deck_id, require_write=True)
 
     forms_payload = payload.get("forms", {}) or {}
     forms = {
@@ -1197,8 +1512,10 @@ def action_add_manual_card(payload: Dict[str, Any]) -> Dict[str, Any]:
     image_files, video_files = split_global_media(saved_media_paths)
 
     connection = get_connection()
+    user_id = get_request_user_id()
     if destination == "global":
         global_payload = {
+            "owner_user_id": user_id,
             "kanji": kanji,
             "kana": kana,
             "english": english,
@@ -1266,14 +1583,15 @@ def action_import_deck_to_global(payload: Dict[str, Any]) -> Dict[str, Any]:
     deck_id = normalize_text(payload.get("deck_id", ""))
     if not deck_id:
         raise RuntimeError("deck_id is required.")
-    added, skipped = ImportDeckCardsToGlobal(get_connection(), deck_id)
+    require_accessible_deck(deck_id, require_write=True)
+    added, skipped = ImportDeckCardsToGlobal(get_connection(), deck_id, get_request_user_id())
     return {"deck_id": deck_id, "added": int(added), "skipped": int(skipped)}
 
 
 def action_list_global_cards(payload: Dict[str, Any]) -> Dict[str, Any]:
     normalized_query = normalize_search_text(payload.get("search", ""))
     rows: List[Dict[str, Any]] = []
-    for row in ListGlobalCards(get_connection()):
+    for row in ListGlobalCards(get_connection(), get_request_user_id()):
         if not matches_search(normalized_query, build_global_card_search_terms(row)):
             continue
         rows.append(serialize_global_card(row))
@@ -1289,7 +1607,7 @@ def action_delete_global_cards(payload: Dict[str, Any]) -> Dict[str, Any]:
     ids = normalize_string_list(payload.get("ids", []))
     if not ids:
         raise RuntimeError("Select one or more global cards first.")
-    deleted = DeleteGlobalCardsByIds(get_connection(), ids)
+    deleted = DeleteGlobalCardsByIds(get_connection(), ids, get_request_user_id())
     return {"deleted": int(deleted)}
 
 
@@ -1303,6 +1621,7 @@ def action_import_global_to_deck(payload: Dict[str, Any]) -> Dict[str, Any]:
         raise RuntimeError("deck_id is required.")
     if not ids:
         raise RuntimeError("Select one or more global cards first.")
+    require_accessible_deck(deck_id, require_write=True)
     added, skipped = ImportGlobalCardsToDeck(
         get_connection(),
         deck_id,
@@ -1310,6 +1629,7 @@ def action_import_global_to_deck(payload: Dict[str, Any]) -> Dict[str, Any]:
         schema_key,
         word_form,
         extraTags=tags,
+        ownerUserId=get_request_user_id(),
     )
     return {"added": int(added), "skipped": int(skipped), "deck_id": deck_id}
 
@@ -1318,6 +1638,7 @@ def action_list_deck_cards(payload: Dict[str, Any]) -> Dict[str, Any]:
     deck_id = normalize_text(payload.get("deck_id", ""))
     if not deck_id:
         return {"deck_id": "", "count": 0, "rows": []}
+    require_accessible_deck(deck_id, require_write=False)
 
     normalized_query = normalize_search_text(payload.get("search", ""))
     rows: List[Dict[str, Any]] = []
@@ -1336,6 +1657,7 @@ def action_bulk_update_card_schema(payload: Dict[str, Any]) -> Dict[str, Any]:
         raise RuntimeError("deck_id is required.")
     if not card_ids:
         raise RuntimeError("Select one or more cards first.")
+    require_accessible_deck(deck_id, require_write=True)
     updated = UpdateCardsSchemaByIds(get_connection(), deck_id, card_ids, schema_key)
     return {
         "updated": int(updated),
@@ -1350,6 +1672,7 @@ def action_delete_deck_cards(payload: Dict[str, Any]) -> Dict[str, Any]:
         raise RuntimeError("deck_id is required.")
     if not card_ids:
         raise RuntimeError("Select one or more cards first.")
+    require_accessible_deck(deck_id, require_write=True)
     deleted = DeleteCardsByIds(get_connection(), deck_id, card_ids)
     return {"deleted": int(deleted)}
 
@@ -1359,6 +1682,7 @@ def action_update_card(payload: Dict[str, Any]) -> Dict[str, Any]:
     card_id = normalize_text(payload.get("card_id", ""))
     if not deck_id or not card_id:
         raise RuntimeError("deck_id and card_id are required.")
+    require_accessible_deck(deck_id, require_write=True)
     updated = UpdateCardContent(
         get_connection(),
         deck_id,
@@ -1387,6 +1711,7 @@ def action_replace_card_media(payload: Dict[str, Any]) -> Dict[str, Any]:
         raise RuntimeError("media_type must be one of: image, audio, video.")
     if not media_paths:
         raise RuntimeError("Select at least one media file.")
+    require_accessible_deck(deck_id, require_write=True)
 
     saved_paths = copy_media_paths_to_workspace(media_paths, deck_id)
     if not saved_paths:
@@ -1409,6 +1734,8 @@ def action_scan_images(payload: Dict[str, Any]) -> Dict[str, Any]:
         raise RuntimeError("deck_id is required.")
     if not image_paths:
         raise RuntimeError("Select one or more image files first.")
+    require_accessible_deck(deck_id, require_write=True)
+    require_ai_user()
 
     upload_adapters = [read_local_file(path) for path in image_paths]
     connection = get_connection()
@@ -1526,6 +1853,7 @@ def action_import_csv(payload: Dict[str, Any]) -> Dict[str, Any]:
         raise RuntimeError("deck_id is required.")
     if not csv_path:
         raise RuntimeError("csv_path is required.")
+    require_accessible_deck(deck_id, require_write=True)
     csv_file = read_local_file(csv_path)
     added, skipped = ImportCsvCards(get_connection(), deck_id, csv_file)
     return {"added": int(added), "skipped": int(skipped)}
@@ -1535,6 +1863,7 @@ def action_export_deck(payload: Dict[str, Any]) -> Dict[str, Any]:
     deck_id = normalize_text(payload.get("deck_id", ""))
     if not deck_id:
         raise RuntimeError("deck_id is required.")
+    require_accessible_deck(deck_id, require_write=False)
     export_path = ExportDeckPackage(get_connection(), deck_id)
     return {"export_path": str(export_path), "filename": export_path.name}
 
@@ -1543,6 +1872,7 @@ def action_get_revision_cards(payload: Dict[str, Any]) -> Dict[str, Any]:
     deck_id = normalize_text(payload.get("deck_id", ""))
     if not deck_id:
         return {"deck_id": "", "rows": []}
+    require_accessible_deck(deck_id, require_write=False)
 
     rows: List[Dict[str, Any]] = []
     for card in GetDeckCards(get_connection(), deck_id):
@@ -1853,6 +2183,7 @@ def action_get_practice_round(payload: Dict[str, Any]) -> Dict[str, Any]:
     deck_id = normalize_text(payload.get("deck_id", ""))
     mode = normalize_text(payload.get("mode", "word_class_sort")) or "word_class_sort"
     include_filtered = bool(payload.get("include_filtered", False))
+    require_accessible_deck(deck_id, require_write=False)
 
     if mode not in {option["key"] for option in PRACTICE_MODE_OPTIONS}:
         mode = "word_class_sort"
@@ -1930,7 +2261,7 @@ def build_learning_vocabulary_context(
 ) -> Tuple[sqlite3.Connection, List[Any], List[Any], List[Dict[str, str]], List[Dict[str, str]]]:
     connection = get_connection()
     deck_rows = list(GetDeckCards(connection, deck_id)) if deck_id else []
-    global_rows = list(ListGlobalCards(connection))
+    global_rows = list(ListGlobalCards(connection, get_request_user_id()))
     preferred_vocabulary = build_vocabulary_seed_from_rows(deck_rows, "deck", limit=48)
     support_vocabulary = build_vocabulary_seed_from_rows(global_rows, "global", limit=96)
 
@@ -2026,8 +2357,9 @@ def action_list_reading_scenarios(payload: Dict[str, Any]) -> Dict[str, Any]:
     deck_id = normalize_text(payload.get("deck_id", ""))
     if not deck_id:
         raise RuntimeError("deck_id is required.")
+    require_accessible_deck(deck_id, require_write=False)
 
-    scenarios = ListAiScenarios(get_connection(), deck_id, "reading")
+    scenarios = ListAiScenarios(get_connection(), get_request_user_id(), deck_id, "reading")
     meta = build_scenario_generation_meta(scenarios)
     return {
         "deck_id": deck_id,
@@ -2040,10 +2372,12 @@ def action_generate_reading_scenarios(payload: Dict[str, Any]) -> Dict[str, Any]
     deck_id = normalize_text(payload.get("deck_id", ""))
     if not deck_id:
         raise RuntimeError("deck_id is required.")
+    require_accessible_deck(deck_id, require_write=False)
+    require_ai_user()
 
     count = max(3, min(8, normalize_question_count(payload.get("count", 6), default=6)))
     connection, _, _, preferred_vocabulary, support_vocabulary = build_learning_vocabulary_context(deck_id)
-    existing_scenarios = ListAiScenarios(connection, deck_id, "reading")
+    existing_scenarios = ListAiScenarios(connection, get_request_user_id(), deck_id, "reading")
     client = GetOpenAiClient()
     suggestions = GenerateScenarioSuggestions(
         client,
@@ -2058,6 +2392,7 @@ def action_generate_reading_scenarios(payload: Dict[str, Any]) -> Dict[str, Any]
     for suggestion in suggestions:
         SaveAiScenario(
             connection,
+            get_request_user_id(),
             deck_id,
             "reading",
             suggestion["title"],
@@ -2070,7 +2405,7 @@ def action_generate_reading_scenarios(payload: Dict[str, Any]) -> Dict[str, Any]
             isCustom=False,
         )
 
-    scenarios = ListAiScenarios(connection, deck_id, "reading")
+    scenarios = ListAiScenarios(connection, get_request_user_id(), deck_id, "reading")
     meta = build_scenario_generation_meta(scenarios)
     return {
         "deck_id": deck_id,
@@ -2084,6 +2419,7 @@ def action_create_reading_scenario(payload: Dict[str, Any]) -> Dict[str, Any]:
     deck_id = normalize_text(payload.get("deck_id", ""))
     if not deck_id:
         raise RuntimeError("deck_id is required.")
+    require_accessible_deck(deck_id, require_write=False)
 
     _, deck_rows, _, _, _ = build_learning_vocabulary_context(deck_id)
     options = normalize_practice_options("reading_comprehension", payload.get("options", {}))
@@ -2094,6 +2430,7 @@ def action_create_reading_scenario(payload: Dict[str, Any]) -> Dict[str, Any]:
 
     scenario = SaveAiScenario(
         get_connection(),
+        get_request_user_id(),
         deck_id,
         "reading",
         title,
@@ -2115,14 +2452,16 @@ def action_start_reading_session(payload: Dict[str, Any]) -> Dict[str, Any]:
 
     if not deck_id or not scenario_id:
         raise RuntimeError("deck_id and scenario_id are required.")
+    require_accessible_deck(deck_id, require_write=False)
+    require_ai_user()
 
     connection, _, _, preferred_vocabulary, support_vocabulary = build_learning_vocabulary_context(deck_id)
     scenario_row = GetAiScenario(connection, scenario_id)
-    if normalize_text(scenario_row["deck_id"]) != deck_id:
+    if normalize_text(scenario_row["deck_id"]) != deck_id or normalize_text(scenario_row["owner_user_id"]) != get_request_user_id():
         raise RuntimeError("Scenario does not belong to the selected deck.")
     scenario = build_scenario_prompt_payload(scenario_row)
 
-    material = None if refresh_material else GetReadingMaterialByScenarioId(connection, scenario_id)
+    material = None if refresh_material else GetReadingMaterialByScenarioId(connection, get_request_user_id(), scenario_id)
     used_cached_material = material is not None
     client = GetOpenAiClient()
     if material is None:
@@ -2135,6 +2474,7 @@ def action_start_reading_session(payload: Dict[str, Any]) -> Dict[str, Any]:
         )
         material = SaveReadingMaterial(
             connection,
+            get_request_user_id(),
             scenario_id,
             deck_id,
             generated_material["title"],
@@ -2171,18 +2511,20 @@ def action_complete_reading_session(payload: Dict[str, Any]) -> Dict[str, Any]:
         raise RuntimeError("scenario_id is required.")
 
     connection = get_connection()
+    scenario_row = GetAiScenario(connection, scenario_id)
+    if normalize_text(scenario_row["owner_user_id"]) != get_request_user_id():
+        raise RuntimeError("Scenario not found.")
     IncrementAiScenarioCompletion(connection, scenario_id)
-    return {
-        "scenario": build_scenario_prompt_payload(GetAiScenario(connection, scenario_id)),
-    }
+    return {"scenario": build_scenario_prompt_payload(scenario_row)}
 
 
 def action_list_conversation_scenarios(payload: Dict[str, Any]) -> Dict[str, Any]:
     deck_id = normalize_text(payload.get("deck_id", ""))
     if not deck_id:
         raise RuntimeError("deck_id is required.")
+    require_accessible_deck(deck_id, require_write=False)
 
-    scenarios = ListAiScenarios(get_connection(), deck_id, "conversation")
+    scenarios = ListAiScenarios(get_connection(), get_request_user_id(), deck_id, "conversation")
     meta = build_scenario_generation_meta(scenarios)
     return {
         "deck_id": deck_id,
@@ -2195,10 +2537,12 @@ def action_generate_conversation_scenarios(payload: Dict[str, Any]) -> Dict[str,
     deck_id = normalize_text(payload.get("deck_id", ""))
     if not deck_id:
         raise RuntimeError("deck_id is required.")
+    require_accessible_deck(deck_id, require_write=False)
+    require_ai_user()
 
     count = max(3, min(8, normalize_question_count(payload.get("count", 6), default=6)))
     connection, _, _, preferred_vocabulary, support_vocabulary = build_learning_vocabulary_context(deck_id)
-    existing_scenarios = ListAiScenarios(connection, deck_id, "conversation")
+    existing_scenarios = ListAiScenarios(connection, get_request_user_id(), deck_id, "conversation")
     client = GetOpenAiClient()
     suggestions = GenerateScenarioSuggestions(
         client,
@@ -2213,6 +2557,7 @@ def action_generate_conversation_scenarios(payload: Dict[str, Any]) -> Dict[str,
     for suggestion in suggestions:
         SaveAiScenario(
             connection,
+            get_request_user_id(),
             deck_id,
             "conversation",
             suggestion["title"],
@@ -2225,7 +2570,7 @@ def action_generate_conversation_scenarios(payload: Dict[str, Any]) -> Dict[str,
             isCustom=False,
         )
 
-    scenarios = ListAiScenarios(connection, deck_id, "conversation")
+    scenarios = ListAiScenarios(connection, get_request_user_id(), deck_id, "conversation")
     meta = build_scenario_generation_meta(scenarios)
     return {
         "deck_id": deck_id,
@@ -2239,6 +2584,7 @@ def action_create_conversation_scenario(payload: Dict[str, Any]) -> Dict[str, An
     deck_id = normalize_text(payload.get("deck_id", ""))
     if not deck_id:
         raise RuntimeError("deck_id is required.")
+    require_accessible_deck(deck_id, require_write=False)
 
     _, deck_rows, _, _, _ = build_learning_vocabulary_context(deck_id)
     explicit_title = normalize_text(payload.get("title", ""))
@@ -2251,6 +2597,7 @@ def action_create_conversation_scenario(payload: Dict[str, Any]) -> Dict[str, An
 
     scenario = SaveAiScenario(
         get_connection(),
+        get_request_user_id(),
         deck_id,
         "conversation",
         title,
@@ -2270,10 +2617,12 @@ def action_start_conversation_session(payload: Dict[str, Any]) -> Dict[str, Any]
     scenario_id = normalize_text(payload.get("scenario_id", ""))
     if not deck_id or not scenario_id:
         raise RuntimeError("deck_id and scenario_id are required.")
+    require_accessible_deck(deck_id, require_write=False)
+    require_ai_user()
 
     connection, _, _, preferred_vocabulary, support_vocabulary = build_learning_vocabulary_context(deck_id)
     scenario_row = GetAiScenario(connection, scenario_id)
-    if normalize_text(scenario_row["deck_id"]) != deck_id:
+    if normalize_text(scenario_row["deck_id"]) != deck_id or normalize_text(scenario_row["owner_user_id"]) != get_request_user_id():
         raise RuntimeError("Scenario does not belong to the selected deck.")
     scenario = build_scenario_prompt_payload(scenario_row)
 
@@ -2286,7 +2635,7 @@ def action_start_conversation_session(payload: Dict[str, Any]) -> Dict[str, Any]
         scenario,
     )
     messages = append_conversation_message([], "assistant", opening["opening_message"])
-    session = CreateConversationSession(connection, scenario_id, deck_id, messages)
+    session = CreateConversationSession(connection, get_request_user_id(), scenario_id, deck_id, messages)
     IncrementAiScenarioUsage(connection, scenario_id)
 
     return {
@@ -2303,9 +2652,12 @@ def action_send_conversation_message(payload: Dict[str, Any]) -> Dict[str, Any]:
     user_message = normalize_text(payload.get("message", ""))
     if not session_id or not user_message:
         raise RuntimeError("session_id and message are required.")
+    require_ai_user()
 
     connection = get_connection()
     session_row = GetConversationSession(connection, session_id)
+    if normalize_text(session_row["owner_user_id"]) != get_request_user_id():
+        raise RuntimeError("Conversation session not found.")
     if normalize_text(session_row["status"]) != "active":
         raise RuntimeError("Conversation session is already completed.")
 
@@ -2345,9 +2697,12 @@ def action_complete_conversation_session(payload: Dict[str, Any]) -> Dict[str, A
     session_id = normalize_text(payload.get("session_id", ""))
     if not session_id:
         raise RuntimeError("session_id is required.")
+    require_ai_user()
 
     connection = get_connection()
     session_row = GetConversationSession(connection, session_id)
+    if normalize_text(session_row["owner_user_id"]) != get_request_user_id():
+        raise RuntimeError("Conversation session not found.")
     scenario_row = GetAiScenario(connection, normalize_text(session_row["scenario_id"]))
     scenario = build_scenario_prompt_payload(scenario_row)
     history = json.loads(session_row["messages_json"] or "[]")
@@ -2382,6 +2737,8 @@ def action_generate_reading_comprehension(payload: Dict[str, Any]) -> Dict[str, 
     deck_id = normalize_text(payload.get("deck_id", ""))
     if not deck_id:
         raise RuntimeError("deck_id is required.")
+    require_accessible_deck(deck_id, require_write=False)
+    require_ai_user()
 
     options = normalize_practice_options("reading_comprehension", payload.get("options", {}))
     connection = get_connection()
@@ -2389,7 +2746,7 @@ def action_generate_reading_comprehension(payload: Dict[str, Any]) -> Dict[str, 
     if not deck_rows:
         raise RuntimeError("No deck cards are available for reading comprehension.")
 
-    global_rows = list(ListGlobalCards(connection))
+    global_rows = list(ListGlobalCards(connection, get_request_user_id()))
     preferred_vocabulary = build_vocabulary_seed_from_rows(deck_rows, "deck", limit=48)
     support_vocabulary = build_vocabulary_seed_from_rows(global_rows, "global", limit=96)
     topic_hint = build_reading_topic_hint(deck_rows, options.get("reading_topic", ""))
@@ -2430,8 +2787,11 @@ def action_add_reading_new_word(payload: Dict[str, Any]) -> Dict[str, Any]:
         raise RuntimeError("word is required.")
     if destination == "deck" and not deck_id:
         raise RuntimeError("deck_id is required when destination is deck.")
+    if destination == "deck":
+        require_accessible_deck(deck_id, require_write=True)
 
     connection = get_connection()
+    user_id = get_request_user_id()
     tags = ["reading_comprehension", "new_vocab"]
     notes = " | ".join(
         [value for value in ["Added from reading comprehension", part_of_speech, note] if value]
@@ -2444,15 +2804,14 @@ def action_add_reading_new_word(payload: Dict[str, Any]) -> Dict[str, Any]:
     )
     if resolved_entry:
         if destination == "global":
-            added = AddGlobalCard(
-                connection,
-                BuildGlobalCardFromDictionaryEntry(
-                    resolved_entry,
-                    tags=tags,
-                    notes=notes,
-                    englishOverride=meaning,
-                ),
+            global_payload = BuildGlobalCardFromDictionaryEntry(
+                resolved_entry,
+                tags=tags,
+                notes=notes,
+                englishOverride=meaning,
             )
+            global_payload["owner_user_id"] = user_id
+            added = AddGlobalCard(connection, global_payload)
         else:
             added = AddCard(
                 connection,
@@ -2476,6 +2835,7 @@ def action_add_reading_new_word(payload: Dict[str, Any]) -> Dict[str, Any]:
         added = AddGlobalCard(
             connection,
             {
+                "owner_user_id": user_id,
                 "kanji": word,
                 "kana": reading,
                 "english": meaning,
@@ -2534,14 +2894,28 @@ def action_add_reading_new_word(payload: Dict[str, Any]) -> Dict[str, Any]:
 
 def action_get_counts(payload: Dict[str, Any]) -> Dict[str, Any]:
     deck_id = normalize_text(payload.get("deck_id", ""))
+    if deck_id:
+        require_accessible_deck(deck_id, require_write=False)
     return {
-        "global_card_count": CountGlobalCards(get_connection()),
+        "global_card_count": CountGlobalCards(get_connection(), get_request_user_id()),
         "deck_card_count": CountCardsInDeck(get_connection(), deck_id) if deck_id else 0,
     }
 
 
 ACTIONS = {
     "bootstrap": action_bootstrap,
+    "register_user": action_register_user,
+    "login_user": action_login_user,
+    "logout_user": action_logout_user,
+    "change_password": action_change_password,
+    "list_users": action_list_users,
+    "admin_update_user": action_admin_update_user,
+    "admin_reset_password": action_admin_reset_password,
+    "list_pending_invites": action_list_pending_invites,
+    "accept_deck_invite": action_accept_deck_invite,
+    "list_deck_collaboration": action_list_deck_collaboration,
+    "create_deck_invite": action_create_deck_invite,
+    "remove_deck_collaborator": action_remove_deck_collaborator,
     "create_collection": action_create_collection,
     "rename_collection": action_rename_collection,
     "create_deck": action_create_deck,
@@ -2609,6 +2983,15 @@ def print_envelope(ok: bool, data: Any = None, error: str = "", include_trace: b
 
 
 def run_action(action: str, payload: Dict[str, Any]) -> Any:
+    session_token = normalize_text(payload.pop("_session_token", ""))
+    if action in PUBLIC_ACTIONS:
+        set_request_user(GetSessionUser(get_connection(), session_token), session_token)
+    else:
+        user_row = GetSessionUser(get_connection(), session_token)
+        if user_row is None:
+            raise RuntimeError("Authentication required.")
+        set_request_user(user_row, session_token)
+
     handler = ACTIONS.get(action)
     if handler is None:
         raise RuntimeError(f"Unknown action: {action}")

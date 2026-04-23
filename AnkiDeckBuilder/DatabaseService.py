@@ -1,6 +1,7 @@
 import hashlib
 import json
 import re
+import secrets
 import sqlite3
 import time
 import uuid
@@ -15,6 +16,14 @@ from AnkiDeckBuilder.AppConfig import (
 from AnkiDeckBuilder.WorkspaceService import EnsureWorkspaceDirectories
 
 AllowedCardFieldsToUpdate = {"kanji", "kana", "english", "notes", "schema_key", "media_type"}
+CollectionColumnDefinitions = {
+    "owner_user_id": "TEXT NOT NULL DEFAULT ''",
+    "display_name": "TEXT NOT NULL DEFAULT ''",
+}
+DeckColumnDefinitions = {
+    "owner_user_id": "TEXT NOT NULL DEFAULT ''",
+    "display_name": "TEXT NOT NULL DEFAULT ''",
+}
 CardColumnDefinitions = {
     "dictionary_entry_id": "TEXT NOT NULL DEFAULT ''",
     "dictionary_headword": "TEXT NOT NULL DEFAULT ''",
@@ -26,6 +35,7 @@ CardColumnDefinitions = {
     "word_form": "TEXT NOT NULL DEFAULT 'dictionary'",
 }
 GlobalCardColumnDefinitions = {
+    "owner_user_id": "TEXT NOT NULL DEFAULT ''",
     "kanji": "TEXT NOT NULL DEFAULT ''",
     "kana": "TEXT NOT NULL DEFAULT ''",
     "english": "TEXT NOT NULL DEFAULT ''",
@@ -52,6 +62,7 @@ GlobalCardColumnDefinitions = {
     "created_at": "REAL NOT NULL DEFAULT 0",
 }
 AiScenarioColumnDefinitions = {
+    "owner_user_id": "TEXT NOT NULL DEFAULT ''",
     "deck_id": "TEXT NOT NULL DEFAULT ''",
     "mode": "TEXT NOT NULL DEFAULT ''",
     "title": "TEXT NOT NULL DEFAULT ''",
@@ -68,6 +79,7 @@ AiScenarioColumnDefinitions = {
     "updated_at": "REAL NOT NULL DEFAULT 0",
 }
 ReadingMaterialColumnDefinitions = {
+    "owner_user_id": "TEXT NOT NULL DEFAULT ''",
     "scenario_id": "TEXT NOT NULL DEFAULT ''",
     "deck_id": "TEXT NOT NULL DEFAULT ''",
     "title": "TEXT NOT NULL DEFAULT ''",
@@ -78,6 +90,7 @@ ReadingMaterialColumnDefinitions = {
     "updated_at": "REAL NOT NULL DEFAULT 0",
 }
 ConversationSessionColumnDefinitions = {
+    "owner_user_id": "TEXT NOT NULL DEFAULT ''",
     "scenario_id": "TEXT NOT NULL DEFAULT ''",
     "deck_id": "TEXT NOT NULL DEFAULT ''",
     "messages_json": "TEXT NOT NULL DEFAULT '[]'",
@@ -86,6 +99,43 @@ ConversationSessionColumnDefinitions = {
     "created_at": "REAL NOT NULL DEFAULT 0",
     "updated_at": "REAL NOT NULL DEFAULT 0",
 }
+UserColumnDefinitions = {
+    "username": "TEXT NOT NULL DEFAULT ''",
+    "email": "TEXT NOT NULL DEFAULT ''",
+    "password_salt": "TEXT NOT NULL DEFAULT ''",
+    "password_hash": "TEXT NOT NULL DEFAULT ''",
+    "is_admin": "INTEGER NOT NULL DEFAULT 0",
+    "can_use_ai": "INTEGER NOT NULL DEFAULT 1",
+    "is_active": "INTEGER NOT NULL DEFAULT 1",
+    "created_at": "REAL NOT NULL DEFAULT 0",
+    "updated_at": "REAL NOT NULL DEFAULT 0",
+}
+UserSessionColumnDefinitions = {
+    "user_id": "TEXT NOT NULL DEFAULT ''",
+    "token_hash": "TEXT NOT NULL DEFAULT ''",
+    "expires_at": "REAL NOT NULL DEFAULT 0",
+    "created_at": "REAL NOT NULL DEFAULT 0",
+    "last_seen_at": "REAL NOT NULL DEFAULT 0",
+}
+DeckCollaboratorColumnDefinitions = {
+    "deck_id": "TEXT NOT NULL DEFAULT ''",
+    "user_id": "TEXT NOT NULL DEFAULT ''",
+    "role": "TEXT NOT NULL DEFAULT 'editor'",
+    "created_at": "REAL NOT NULL DEFAULT 0",
+}
+DeckInviteColumnDefinitions = {
+    "deck_id": "TEXT NOT NULL DEFAULT ''",
+    "invited_email": "TEXT NOT NULL DEFAULT ''",
+    "invited_username": "TEXT NOT NULL DEFAULT ''",
+    "token_hash": "TEXT NOT NULL DEFAULT ''",
+    "token_preview": "TEXT NOT NULL DEFAULT ''",
+    "invited_by_user_id": "TEXT NOT NULL DEFAULT ''",
+    "accepted_by_user_id": "TEXT NOT NULL DEFAULT ''",
+    "expires_at": "REAL NOT NULL DEFAULT 0",
+    "created_at": "REAL NOT NULL DEFAULT 0",
+}
+SessionLifetimeSeconds = 60 * 60 * 24 * 14
+InviteLifetimeSeconds = 60 * 60 * 24 * 7
 WordFormFieldByKey = {
     "dictionary": ("kanji", "kana"),
     "masu": ("kanji_masu", "kana_masu"),
@@ -99,11 +149,79 @@ def OpenDatabaseConnection() -> sqlite3.Connection:
     EnsureWorkspaceDirectories()
     connection = sqlite3.connect(DatabasePath, check_same_thread=False)
     connection.row_factory = sqlite3.Row
+    connection.execute("PRAGMA foreign_keys = ON")
+    connection.execute("PRAGMA journal_mode = WAL")
+    connection.execute("PRAGMA synchronous = NORMAL")
     EnsureDatabaseSchema(connection)
     return connection
 
 
 def EnsureDatabaseSchema(connection: sqlite3.Connection) -> None:
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS users (
+            id TEXT PRIMARY KEY,
+            username TEXT UNIQUE NOT NULL,
+            email TEXT UNIQUE NOT NULL,
+            password_salt TEXT NOT NULL DEFAULT '',
+            password_hash TEXT NOT NULL DEFAULT '',
+            is_admin INTEGER NOT NULL DEFAULT 0,
+            can_use_ai INTEGER NOT NULL DEFAULT 1,
+            is_active INTEGER NOT NULL DEFAULT 1,
+            created_at REAL NOT NULL,
+            updated_at REAL NOT NULL
+        )
+        """
+    )
+    EnsureUsersTableColumns(connection)
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS user_sessions (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            token_hash TEXT UNIQUE NOT NULL,
+            expires_at REAL NOT NULL,
+            created_at REAL NOT NULL,
+            last_seen_at REAL NOT NULL,
+            FOREIGN KEY(user_id) REFERENCES users(id)
+        )
+        """
+    )
+    EnsureUserSessionsTableColumns(connection)
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS deck_collaborators (
+            id TEXT PRIMARY KEY,
+            deck_id TEXT NOT NULL,
+            user_id TEXT NOT NULL,
+            role TEXT NOT NULL DEFAULT 'editor',
+            created_at REAL NOT NULL,
+            UNIQUE(deck_id, user_id),
+            FOREIGN KEY(deck_id) REFERENCES decks(id),
+            FOREIGN KEY(user_id) REFERENCES users(id)
+        )
+        """
+    )
+    EnsureDeckCollaboratorsTableColumns(connection)
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS deck_invites (
+            id TEXT PRIMARY KEY,
+            deck_id TEXT NOT NULL,
+            invited_email TEXT NOT NULL DEFAULT '',
+            invited_username TEXT NOT NULL DEFAULT '',
+            token_hash TEXT UNIQUE NOT NULL,
+            token_preview TEXT NOT NULL DEFAULT '',
+            invited_by_user_id TEXT NOT NULL,
+            accepted_by_user_id TEXT NOT NULL DEFAULT '',
+            expires_at REAL NOT NULL,
+            created_at REAL NOT NULL,
+            FOREIGN KEY(deck_id) REFERENCES decks(id),
+            FOREIGN KEY(invited_by_user_id) REFERENCES users(id)
+        )
+        """
+    )
+    EnsureDeckInvitesTableColumns(connection)
     connection.execute(
         """
         CREATE TABLE IF NOT EXISTS collections (
@@ -113,6 +231,7 @@ def EnsureDatabaseSchema(connection: sqlite3.Connection) -> None:
         )
         """
     )
+    EnsureCollectionsTableColumns(connection)
     connection.execute(
         """
         CREATE TABLE IF NOT EXISTS decks (
@@ -125,6 +244,7 @@ def EnsureDatabaseSchema(connection: sqlite3.Connection) -> None:
         )
         """
     )
+    EnsureDecksTableColumns(connection)
     connection.execute(
         """
         CREATE TABLE IF NOT EXISTS cards (
@@ -253,6 +373,7 @@ def EnsureDatabaseSchema(connection: sqlite3.Connection) -> None:
         """
     )
     EnsureConversationSessionsTableColumns(connection)
+    BackfillScopedTemplateColumns(connection)
     connection.commit()
 
 
@@ -266,6 +387,26 @@ def EnsureCardsTableColumns(connection: sqlite3.Connection) -> None:
         connection.execute(f"ALTER TABLE cards ADD COLUMN {columnName} {definition}")
 
 
+def EnsureCollectionsTableColumns(connection: sqlite3.Connection) -> None:
+    existingColumns = {
+        row["name"] for row in connection.execute("PRAGMA table_info(collections)").fetchall()
+    }
+    for columnName, definition in CollectionColumnDefinitions.items():
+        if columnName in existingColumns:
+            continue
+        connection.execute(f"ALTER TABLE collections ADD COLUMN {columnName} {definition}")
+
+
+def EnsureDecksTableColumns(connection: sqlite3.Connection) -> None:
+    existingColumns = {
+        row["name"] for row in connection.execute("PRAGMA table_info(decks)").fetchall()
+    }
+    for columnName, definition in DeckColumnDefinitions.items():
+        if columnName in existingColumns:
+            continue
+        connection.execute(f"ALTER TABLE decks ADD COLUMN {columnName} {definition}")
+
+
 def EnsureGlobalCardsTableColumns(connection: sqlite3.Connection) -> None:
     existingColumns = {
         row["name"] for row in connection.execute("PRAGMA table_info(global_cards)").fetchall()
@@ -274,6 +415,46 @@ def EnsureGlobalCardsTableColumns(connection: sqlite3.Connection) -> None:
         if columnName in existingColumns:
             continue
         connection.execute(f"ALTER TABLE global_cards ADD COLUMN {columnName} {definition}")
+
+
+def EnsureUsersTableColumns(connection: sqlite3.Connection) -> None:
+    existingColumns = {
+        row["name"] for row in connection.execute("PRAGMA table_info(users)").fetchall()
+    }
+    for columnName, definition in UserColumnDefinitions.items():
+        if columnName in existingColumns:
+            continue
+        connection.execute(f"ALTER TABLE users ADD COLUMN {columnName} {definition}")
+
+
+def EnsureUserSessionsTableColumns(connection: sqlite3.Connection) -> None:
+    existingColumns = {
+        row["name"] for row in connection.execute("PRAGMA table_info(user_sessions)").fetchall()
+    }
+    for columnName, definition in UserSessionColumnDefinitions.items():
+        if columnName in existingColumns:
+            continue
+        connection.execute(f"ALTER TABLE user_sessions ADD COLUMN {columnName} {definition}")
+
+
+def EnsureDeckCollaboratorsTableColumns(connection: sqlite3.Connection) -> None:
+    existingColumns = {
+        row["name"] for row in connection.execute("PRAGMA table_info(deck_collaborators)").fetchall()
+    }
+    for columnName, definition in DeckCollaboratorColumnDefinitions.items():
+        if columnName in existingColumns:
+            continue
+        connection.execute(f"ALTER TABLE deck_collaborators ADD COLUMN {columnName} {definition}")
+
+
+def EnsureDeckInvitesTableColumns(connection: sqlite3.Connection) -> None:
+    existingColumns = {
+        row["name"] for row in connection.execute("PRAGMA table_info(deck_invites)").fetchall()
+    }
+    for columnName, definition in DeckInviteColumnDefinitions.items():
+        if columnName in existingColumns:
+            continue
+        connection.execute(f"ALTER TABLE deck_invites ADD COLUMN {columnName} {definition}")
 
 
 def EnsureAiScenariosTableColumns(connection: sqlite3.Connection) -> None:
@@ -317,8 +498,14 @@ def BuildCardUniqueKey(schemaKey: str, kanji: str, kana: str) -> str:
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
-def BuildGlobalCardUniqueKey(kanji: str, kana: str) -> str:
-    raw = "|".join([NormalizeText(kanji), NormalizeText(kana)])
+def BuildGlobalCardUniqueKey(ownerUserId: str, kanji: str, kana: str) -> str:
+    raw = "|".join(
+        [
+            NormalizeText(ownerUserId),
+            NormalizeText(kanji),
+            NormalizeText(kana),
+        ]
+    )
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
@@ -369,6 +556,153 @@ def DecodeJsonObject(raw: str) -> Dict[str, Any]:
     if not isinstance(parsed, dict):
         return {}
     return dict(parsed)
+
+
+def NormalizeEmail(value: str) -> str:
+    return NormalizeText(value)
+
+
+def BuildScopedName(ownerUserId: str, displayName: str) -> str:
+    normalizedOwner = (ownerUserId or "").strip()
+    normalizedDisplayName = (displayName or "").strip()
+    if not normalizedOwner:
+        return normalizedDisplayName
+    return f"{normalizedOwner}::{normalizedDisplayName}"
+
+
+def DecodeScopedDisplayName(rawName: str) -> str:
+    normalizedName = (rawName or "").strip()
+    if "::" not in normalizedName:
+        return normalizedName
+    return normalizedName.split("::", 1)[1].strip() or normalizedName
+
+
+def HashToken(token: str) -> str:
+    return hashlib.sha256((token or "").encode("utf-8")).hexdigest()
+
+
+def GeneratePasswordSalt() -> str:
+    return secrets.token_hex(16)
+
+
+def HashPassword(password: str, salt: str) -> str:
+    derivedKey = hashlib.pbkdf2_hmac(
+        "sha256",
+        (password or "").encode("utf-8"),
+        (salt or "").encode("utf-8"),
+        200000,
+    )
+    return derivedKey.hex()
+
+
+def VerifyPassword(password: str, salt: str, expectedHash: str) -> bool:
+    candidateHash = HashPassword(password, salt)
+    return secrets.compare_digest(candidateHash, expectedHash or "")
+
+
+def SerializeUserRow(row: sqlite3.Row) -> Dict[str, Any]:
+    return {
+        "id": row["id"],
+        "username": (row["username"] or "").strip(),
+        "email": (row["email"] or "").strip(),
+        "is_admin": bool(row["is_admin"]),
+        "can_use_ai": bool(row["can_use_ai"]),
+        "is_active": bool(row["is_active"]),
+        "created_at": float(row["created_at"] or 0),
+        "updated_at": float(row["updated_at"] or 0),
+    }
+
+
+def BackfillScopedTemplateColumns(connection: sqlite3.Connection) -> None:
+    for row in connection.execute("SELECT id, name, display_name, owner_user_id FROM collections").fetchall():
+        displayName = (row["display_name"] or "").strip() or DecodeScopedDisplayName(row["name"])
+        ownerUserId = (row["owner_user_id"] or "").strip()
+        if displayName != (row["display_name"] or "").strip():
+            connection.execute(
+                "UPDATE collections SET display_name = ? WHERE id = ?",
+                (displayName, row["id"]),
+            )
+        if (row["owner_user_id"] or "").strip() != ownerUserId:
+            connection.execute(
+                "UPDATE collections SET owner_user_id = ? WHERE id = ?",
+                (ownerUserId, row["id"]),
+            )
+
+    for row in connection.execute(
+        """
+        SELECT decks.id, decks.name, decks.display_name, decks.owner_user_id, collections.owner_user_id AS collection_owner
+        FROM decks
+        JOIN collections ON collections.id = decks.collection_id
+        """
+    ).fetchall():
+        displayName = (row["display_name"] or "").strip() or DecodeScopedDisplayName(row["name"])
+        ownerUserId = (row["owner_user_id"] or "").strip() or (row["collection_owner"] or "").strip()
+        if displayName != (row["display_name"] or "").strip():
+            connection.execute(
+                "UPDATE decks SET display_name = ? WHERE id = ?",
+                (displayName, row["id"]),
+            )
+        if ownerUserId != (row["owner_user_id"] or "").strip():
+            connection.execute(
+                "UPDATE decks SET owner_user_id = ? WHERE id = ?",
+                (ownerUserId, row["id"]),
+            )
+
+    for row in connection.execute("SELECT id, owner_user_id, kanji, kana FROM global_cards").fetchall():
+        ownerUserId = (row["owner_user_id"] or "").strip()
+        uniqueKey = BuildGlobalCardUniqueKey(ownerUserId, row["kanji"], row["kana"])
+        if uniqueKey != (row["unique_key"] or "").strip():
+            connection.execute(
+                "UPDATE global_cards SET unique_key = ?, owner_user_id = ? WHERE id = ?",
+                (uniqueKey, ownerUserId, row["id"]),
+            )
+
+    for row in connection.execute("SELECT id, owner_user_id FROM ai_scenarios").fetchall():
+        if (row["owner_user_id"] or "").strip():
+            continue
+        connection.execute(
+            """
+            UPDATE ai_scenarios
+            SET owner_user_id = COALESCE(
+                (SELECT owner_user_id FROM decks WHERE decks.id = ai_scenarios.deck_id),
+                ''
+            )
+            WHERE id = ?
+            """,
+            (row["id"],),
+        )
+
+    for row in connection.execute("SELECT id, owner_user_id FROM reading_materials").fetchall():
+        if (row["owner_user_id"] or "").strip():
+            continue
+        connection.execute(
+            """
+            UPDATE reading_materials
+            SET owner_user_id = COALESCE(
+                (SELECT owner_user_id FROM ai_scenarios WHERE ai_scenarios.id = reading_materials.scenario_id),
+                ''
+            )
+            WHERE id = ?
+            """,
+            (row["id"],),
+        )
+
+    for row in connection.execute("SELECT id, owner_user_id FROM conversation_sessions").fetchall():
+        if (row["owner_user_id"] or "").strip():
+            continue
+        connection.execute(
+            """
+            UPDATE conversation_sessions
+            SET owner_user_id = COALESCE(
+                (SELECT owner_user_id FROM ai_scenarios WHERE ai_scenarios.id = conversation_sessions.scenario_id),
+                ''
+            )
+            WHERE id = ?
+            """,
+            (row["id"],),
+        )
+
+    connection.execute("DELETE FROM user_sessions WHERE expires_at <= ?", (time.time(),))
 
 
 def NormalizeStringList(values: List[Any]) -> List[str]:
@@ -442,66 +776,160 @@ def CardWordExistsInSchema(
     return False
 
 
-def ListCollections(connection: sqlite3.Connection) -> List[Dict[str, Any]]:
-    return [dict(row) for row in connection.execute("SELECT * FROM collections ORDER BY name")]
+def ListCollections(connection: sqlite3.Connection, ownerUserId: str = "") -> List[Dict[str, Any]]:
+    rows = connection.execute(
+        """
+        SELECT
+            id,
+            owner_user_id,
+            COALESCE(NULLIF(display_name, ''), name) AS name,
+            created_at
+        FROM collections
+        WHERE owner_user_id = ?
+        ORDER BY COALESCE(NULLIF(display_name, ''), name)
+        """,
+        ((ownerUserId or "").strip(),),
+    ).fetchall()
+    return [dict(row) for row in rows]
 
 
 def ListDecks(
     connection: sqlite3.Connection,
+    ownerUserId: str = "",
     collectionId: Optional[str] = None,
     includeCollectionName: bool = False,
+    includeCollaborations: bool = True,
 ) -> List[Dict[str, Any]]:
-    parameters: tuple = ()
+    normalizedOwnerUserId = (ownerUserId or "").strip()
+    parameters: List[str] = [normalizedOwnerUserId]
     if includeCollectionName:
         query = """
-            SELECT decks.*, collections.name AS collection_name
+            SELECT
+                decks.id,
+                decks.collection_id,
+                decks.owner_user_id,
+                COALESCE(NULLIF(decks.display_name, ''), decks.name) AS name,
+                decks.created_at,
+                COALESCE(NULLIF(collections.display_name, ''), collections.name) AS collection_name,
+                CASE WHEN decks.owner_user_id = ? THEN 1 ELSE 0 END AS is_owner
             FROM decks
             JOIN collections ON collections.id = decks.collection_id
         """
     else:
-        query = "SELECT * FROM decks"
+        query = """
+            SELECT
+                decks.id,
+                decks.collection_id,
+                decks.owner_user_id,
+                COALESCE(NULLIF(decks.display_name, ''), decks.name) AS name,
+                decks.created_at,
+                CASE WHEN decks.owner_user_id = ? THEN 1 ELSE 0 END AS is_owner
+            FROM decks
+        """
 
+    accessClause = """
+        (
+            decks.owner_user_id = ?
+            OR (
+                ? = 1 AND EXISTS (
+                    SELECT 1
+                    FROM deck_collaborators
+                    WHERE deck_collaborators.deck_id = decks.id
+                      AND deck_collaborators.user_id = ?
+                )
+            )
+        )
+    """
+    parameters.extend([normalizedOwnerUserId, int(bool(includeCollaborations)), normalizedOwnerUserId])
+    query += f" WHERE {accessClause}"
     if collectionId:
-        query += " WHERE collection_id = ?"
-        parameters = (collectionId,)
+        query += " AND decks.collection_id = ?"
+        parameters.append(collectionId)
 
     if includeCollectionName:
-        query += " ORDER BY collections.name, decks.name"
+        query += " ORDER BY collection_name, name"
     else:
         query += " ORDER BY name"
-    return [dict(row) for row in connection.execute(query, parameters)]
+    return [dict(row) for row in connection.execute(query, tuple(parameters))]
 
 
-def CreateCollection(connection: sqlite3.Connection, name: str) -> None:
+def CreateCollection(connection: sqlite3.Connection, name: str, ownerUserId: str = "") -> None:
+    displayName = name.strip()
     connection.execute(
-        "INSERT INTO collections (id, name, created_at) VALUES (?, ?, ?)",
-        (str(uuid.uuid4()), name.strip(), time.time()),
+        """
+        INSERT INTO collections (id, owner_user_id, name, display_name, created_at)
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        (
+            str(uuid.uuid4()),
+            (ownerUserId or "").strip(),
+            BuildScopedName(ownerUserId, displayName),
+            displayName,
+            time.time(),
+        ),
     )
     connection.commit()
 
 
-def RenameCollection(connection: sqlite3.Connection, collectionId: str, newName: str) -> None:
-    connection.execute("UPDATE collections SET name = ? WHERE id = ?", (newName.strip(), collectionId))
-    connection.commit()
-
-
-def CreateDeck(connection: sqlite3.Connection, collectionId: str, name: str) -> None:
+def RenameCollection(connection: sqlite3.Connection, collectionId: str, newName: str, ownerUserId: str = "") -> None:
+    displayName = newName.strip()
     connection.execute(
-        "INSERT INTO decks (id, collection_id, name, created_at) VALUES (?, ?, ?, ?)",
-        (str(uuid.uuid4()), collectionId, name.strip(), time.time()),
+        "UPDATE collections SET name = ?, display_name = ? WHERE id = ? AND owner_user_id = ?",
+        (
+            BuildScopedName(ownerUserId, displayName),
+            displayName,
+            collectionId,
+            (ownerUserId or "").strip(),
+        ),
     )
     connection.commit()
 
 
-def RenameDeck(connection: sqlite3.Connection, deckId: str, newName: str) -> None:
-    connection.execute("UPDATE decks SET name = ? WHERE id = ?", (newName.strip(), deckId))
+def CreateDeck(connection: sqlite3.Connection, collectionId: str, name: str, ownerUserId: str = "") -> None:
+    displayName = name.strip()
+    connection.execute(
+        """
+        INSERT INTO decks (id, collection_id, owner_user_id, name, display_name, created_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+        """,
+        (
+            str(uuid.uuid4()),
+            collectionId,
+            (ownerUserId or "").strip(),
+            BuildScopedName(ownerUserId, displayName),
+            displayName,
+            time.time(),
+        ),
+    )
+    connection.commit()
+
+
+def RenameDeck(connection: sqlite3.Connection, deckId: str, newName: str, ownerUserId: str = "") -> None:
+    displayName = newName.strip()
+    connection.execute(
+        """
+        UPDATE decks
+        SET name = ?, display_name = ?
+        WHERE id = ? AND owner_user_id = ?
+        """,
+        (
+            BuildScopedName(ownerUserId, displayName),
+            displayName,
+            deckId,
+            (ownerUserId or "").strip(),
+        ),
+    )
     connection.commit()
 
 
 def GetDeckRow(connection: sqlite3.Connection, deckId: str) -> sqlite3.Row:
     row = connection.execute(
         """
-        SELECT decks.id AS deck_id, decks.name AS deck_name, collections.name AS collection_name
+        SELECT
+            decks.id AS deck_id,
+            COALESCE(NULLIF(decks.display_name, ''), decks.name) AS deck_name,
+            COALESCE(NULLIF(collections.display_name, ''), collections.name) AS collection_name,
+            decks.owner_user_id AS owner_user_id
         FROM decks
         JOIN collections ON collections.id = decks.collection_id
         WHERE decks.id = ?
@@ -526,13 +954,23 @@ def CountCardsInDeck(connection: sqlite3.Connection, deckId: str) -> int:
     return int(connection.execute("SELECT COUNT(*) FROM cards WHERE deck_id = ?", (deckId,)).fetchone()[0])
 
 
-def GetDeckCardCounts(connection: sqlite3.Connection) -> Dict[str, int]:
+def GetDeckCardCounts(connection: sqlite3.Connection, ownerUserId: str) -> Dict[str, int]:
+    normalizedOwnerUserId = (ownerUserId or "").strip()
     rows = connection.execute(
         """
-        SELECT deck_id, COUNT(*) AS count
+        SELECT cards.deck_id, COUNT(*) AS count
         FROM cards
-        GROUP BY deck_id
-        """
+        JOIN decks ON decks.id = cards.deck_id
+        WHERE decks.owner_user_id = ?
+           OR EXISTS (
+                SELECT 1
+                FROM deck_collaborators
+                WHERE deck_collaborators.deck_id = decks.id
+                  AND deck_collaborators.user_id = ?
+           )
+        GROUP BY cards.deck_id
+        """,
+        (normalizedOwnerUserId, normalizedOwnerUserId),
     ).fetchall()
     return {row["deck_id"]: int(row["count"]) for row in rows}
 
@@ -598,32 +1036,34 @@ def AddCard(connection: sqlite3.Connection, deckId: str, card: Dict[str, Any]) -
 
 def GlobalCardExists(
     connection: sqlite3.Connection,
+    ownerUserId: str,
     kanji: str,
     kana: str,
     excludeCardId: Optional[str] = None,
 ) -> bool:
-    uniqueKey = BuildGlobalCardUniqueKey(kanji, kana)
+    uniqueKey = BuildGlobalCardUniqueKey(ownerUserId, kanji, kana)
     if excludeCardId:
         row = connection.execute(
-            "SELECT 1 FROM global_cards WHERE unique_key = ? AND id != ? LIMIT 1",
-            (uniqueKey, excludeCardId),
+            "SELECT 1 FROM global_cards WHERE owner_user_id = ? AND unique_key = ? AND id != ? LIMIT 1",
+            ((ownerUserId or "").strip(), uniqueKey, excludeCardId),
         ).fetchone()
     else:
         row = connection.execute(
-            "SELECT 1 FROM global_cards WHERE unique_key = ? LIMIT 1",
-            (uniqueKey,),
+            "SELECT 1 FROM global_cards WHERE owner_user_id = ? AND unique_key = ? LIMIT 1",
+            ((ownerUserId or "").strip(), uniqueKey),
         ).fetchone()
     return row is not None
 
 
 def AddGlobalCard(connection: sqlite3.Connection, card: Dict[str, Any]) -> bool:
+    ownerUserId = (card.get("owner_user_id") or "").strip()
     kanji = (card.get("kanji") or "").strip()
     kana = (card.get("kana") or "").strip()
     english = (card.get("english") or "").strip()
     if not kanji or not kana or not english:
         return False
 
-    if GlobalCardExists(connection, kanji, kana):
+    if GlobalCardExists(connection, ownerUserId, kanji, kana):
         return False
 
     kanjiMasu = (card.get("kanji_masu") or "").strip()
@@ -646,23 +1086,24 @@ def AddGlobalCard(connection: sqlite3.Connection, card: Dict[str, Any]) -> bool:
     imageFiles = NormalizeStringList(card.get("image_files") or [])
     videoFiles = NormalizeStringList(card.get("video_files") or [])
     tags = NormalizeStringList(card.get("tags") or [])
-    uniqueKey = BuildGlobalCardUniqueKey(kanji, kana)
+    uniqueKey = BuildGlobalCardUniqueKey(ownerUserId, kanji, kana)
 
     try:
         connection.execute(
             """
             INSERT INTO global_cards (
-                id, kanji, kana, english, notes,
+                id, owner_user_id, kanji, kana, english, notes,
                 kanji_masu, kana_masu, kanji_te, kana_te,
                 kanji_past, kana_past, kanji_negative, kana_negative,
                 image_files_json, video_files_json, tags_json,
                 dictionary_entry_id, dictionary_headword, dictionary_reading,
                 dictionary_gloss, dictionary_pos, dictionary_pos_tags, verb_type,
                 unique_key, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 str(uuid.uuid4()),
+                ownerUserId,
                 kanji,
                 kana,
                 english,
@@ -696,10 +1137,19 @@ def AddGlobalCard(connection: sqlite3.Connection, card: Dict[str, Any]) -> bool:
 
 
 def GetGlobalCardBySurface(connection: sqlite3.Connection, kanji: str, kana: str) -> Optional[sqlite3.Row]:
-    uniqueKey = BuildGlobalCardUniqueKey(kanji, kana)
+    raise RuntimeError("GetGlobalCardBySurface requires owner_user_id; use GetUserGlobalCardBySurface.")
+
+
+def GetUserGlobalCardBySurface(
+    connection: sqlite3.Connection,
+    ownerUserId: str,
+    kanji: str,
+    kana: str,
+) -> Optional[sqlite3.Row]:
+    uniqueKey = BuildGlobalCardUniqueKey(ownerUserId, kanji, kana)
     return connection.execute(
-        "SELECT * FROM global_cards WHERE unique_key = ? LIMIT 1",
-        (uniqueKey,),
+        "SELECT * FROM global_cards WHERE owner_user_id = ? AND unique_key = ? LIMIT 1",
+        ((ownerUserId or "").strip(), uniqueKey),
     ).fetchone()
 
 
@@ -850,26 +1300,36 @@ def MergeGlobalCard(connection: sqlite3.Connection, existingCard: sqlite3.Row, i
     return True
 
 
-def ListGlobalCards(connection: sqlite3.Connection) -> List[sqlite3.Row]:
+def ListGlobalCards(connection: sqlite3.Connection, ownerUserId: str = "") -> List[sqlite3.Row]:
     return list(
         connection.execute(
-            "SELECT * FROM global_cards ORDER BY created_at DESC"
+            "SELECT * FROM global_cards WHERE owner_user_id = ? ORDER BY created_at DESC",
+            ((ownerUserId or "").strip(),),
         )
     )
 
 
-def CountGlobalCards(connection: sqlite3.Connection) -> int:
-    return int(connection.execute("SELECT COUNT(*) FROM global_cards").fetchone()[0])
+def CountGlobalCards(connection: sqlite3.Connection, ownerUserId: str = "") -> int:
+    return int(
+        connection.execute(
+            "SELECT COUNT(*) FROM global_cards WHERE owner_user_id = ?",
+            ((ownerUserId or "").strip(),),
+        ).fetchone()[0]
+    )
 
 
-def GetGlobalCardsByIds(connection: sqlite3.Connection, globalCardIds: List[str]) -> List[sqlite3.Row]:
+def GetGlobalCardsByIds(
+    connection: sqlite3.Connection,
+    globalCardIds: List[str],
+    ownerUserId: str = "",
+) -> List[sqlite3.Row]:
     if not globalCardIds:
         return []
     placeholders = ", ".join(["?"] * len(globalCardIds))
     return list(
         connection.execute(
-            f"SELECT * FROM global_cards WHERE id IN ({placeholders})",
-            globalCardIds,
+            f"SELECT * FROM global_cards WHERE owner_user_id = ? AND id IN ({placeholders})",
+            [(ownerUserId or "").strip(), *globalCardIds],
         )
     )
 
@@ -909,7 +1369,7 @@ def BuildDeckCardPayloadFromGlobalCard(
     }
 
 
-def ImportDeckCardsToGlobal(connection: sqlite3.Connection, deckId: str) -> Tuple[int, int]:
+def ImportDeckCardsToGlobal(connection: sqlite3.Connection, deckId: str, ownerUserId: str = "") -> Tuple[int, int]:
     cards = GetDeckCards(connection, deckId)
     added = 0
     skipped = 0
@@ -940,6 +1400,7 @@ def ImportDeckCardsToGlobal(connection: sqlite3.Connection, deckId: str) -> Tupl
             videoFiles = NormalizeStringList(videoFiles)
 
         globalCard: Dict[str, Any] = {
+            "owner_user_id": ownerUserId,
             "kanji": baseKanji,
             "kana": baseKana,
             "english": (card["dictionary_gloss"] or "").strip() or (card["english"] or "").strip(),
@@ -969,7 +1430,7 @@ def ImportDeckCardsToGlobal(connection: sqlite3.Connection, deckId: str) -> Tupl
             globalCard[kanjiField] = (card["kanji"] or "").strip()
             globalCard[kanaField] = (card["kana"] or "").strip()
 
-        existingGlobalCard = GetGlobalCardBySurface(connection, baseKanji, baseKana)
+        existingGlobalCard = GetUserGlobalCardBySurface(connection, ownerUserId, baseKanji, baseKana)
         if existingGlobalCard is not None:
             isMerged = MergeGlobalCard(connection, existingGlobalCard, globalCard)
             added += int(isMerged)
@@ -990,8 +1451,9 @@ def ImportGlobalCardsToDeck(
     schemaKey: str,
     requestedWordForm: str,
     extraTags: Optional[List[str]] = None,
+    ownerUserId: str = "",
 ) -> Tuple[int, int]:
-    globalCards = GetGlobalCardsByIds(connection, globalCardIds)
+    globalCards = GetGlobalCardsByIds(connection, globalCardIds, ownerUserId)
     added = 0
     skipped = 0
     for globalCard in globalCards:
@@ -1168,14 +1630,14 @@ def DeleteCardsByIds(connection: sqlite3.Connection, deckId: str, cardIds: List[
     return max(cursor.rowcount, 0)
 
 
-def DeleteGlobalCardsByIds(connection: sqlite3.Connection, globalCardIds: List[str]) -> int:
+def DeleteGlobalCardsByIds(connection: sqlite3.Connection, globalCardIds: List[str], ownerUserId: str = "") -> int:
     if not globalCardIds:
         return 0
 
     placeholders = ", ".join(["?"] * len(globalCardIds))
     cursor = connection.execute(
-        f"DELETE FROM global_cards WHERE id IN ({placeholders})",
-        list(globalCardIds),
+        f"DELETE FROM global_cards WHERE owner_user_id = ? AND id IN ({placeholders})",
+        [(ownerUserId or "").strip(), *globalCardIds],
     )
     connection.commit()
     return max(cursor.rowcount, 0)
@@ -1232,6 +1694,537 @@ def DeckHasKanjiWordForm(
     return row is not None
 
 
+def CountUsers(connection: sqlite3.Connection) -> int:
+    return int(connection.execute("SELECT COUNT(*) FROM users").fetchone()[0])
+
+
+def GetUserById(connection: sqlite3.Connection, userId: str) -> Optional[sqlite3.Row]:
+    return connection.execute("SELECT * FROM users WHERE id = ? LIMIT 1", ((userId or "").strip(),)).fetchone()
+
+
+def GetUserByIdentifier(connection: sqlite3.Connection, identifier: str) -> Optional[sqlite3.Row]:
+    normalizedIdentifier = (identifier or "").strip()
+    normalizedEmail = NormalizeEmail(identifier)
+    return connection.execute(
+        """
+        SELECT *
+        FROM users
+        WHERE lower(username) = lower(?)
+           OR lower(email) = lower(?)
+        LIMIT 1
+        """,
+        (normalizedIdentifier, normalizedEmail),
+    ).fetchone()
+
+
+def CreateUser(
+    connection: sqlite3.Connection,
+    username: str,
+    email: str,
+    password: str,
+    isAdmin: bool = False,
+    canUseAi: bool = True,
+) -> sqlite3.Row:
+    normalizedUsername = (username or "").strip()
+    normalizedEmail = NormalizeEmail(email)
+    if not normalizedUsername or not normalizedEmail or not password:
+        raise RuntimeError("username, email, and password are required.")
+
+    salt = GeneratePasswordSalt()
+    now = time.time()
+    userId = str(uuid.uuid4())
+    connection.execute(
+        """
+        INSERT INTO users (
+            id, username, email, password_salt, password_hash,
+            is_admin, can_use_ai, is_active, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+        """,
+        (
+            userId,
+            normalizedUsername,
+            normalizedEmail,
+            salt,
+            HashPassword(password, salt),
+            int(bool(isAdmin)),
+            int(bool(canUseAi)),
+            now,
+            now,
+        ),
+    )
+    connection.commit()
+    row = GetUserById(connection, userId)
+    if row is None:
+        raise RuntimeError("Failed to create user.")
+    return row
+
+
+def UpdateUserPassword(connection: sqlite3.Connection, userId: str, newPassword: str) -> None:
+    salt = GeneratePasswordSalt()
+    now = time.time()
+    connection.execute(
+        """
+        UPDATE users
+        SET password_salt = ?, password_hash = ?, updated_at = ?
+        WHERE id = ?
+        """,
+        (salt, HashPassword(newPassword, salt), now, (userId or "").strip()),
+    )
+    connection.commit()
+
+
+def AuthenticateUser(connection: sqlite3.Connection, identifier: str, password: str) -> Optional[sqlite3.Row]:
+    userRow = GetUserByIdentifier(connection, identifier)
+    if userRow is None or not bool(userRow["is_active"]):
+        return None
+    if not VerifyPassword(password, userRow["password_salt"], userRow["password_hash"]):
+        return None
+    return userRow
+
+
+def CreateUserSession(connection: sqlite3.Connection, userId: str) -> str:
+    rawToken = secrets.token_urlsafe(48)
+    now = time.time()
+    connection.execute(
+        """
+        INSERT INTO user_sessions (
+            id, user_id, token_hash, expires_at, created_at, last_seen_at
+        ) VALUES (?, ?, ?, ?, ?, ?)
+        """,
+        (
+            str(uuid.uuid4()),
+            (userId or "").strip(),
+            HashToken(rawToken),
+            now + SessionLifetimeSeconds,
+            now,
+            now,
+        ),
+    )
+    connection.commit()
+    return rawToken
+
+
+def DeleteUserSession(connection: sqlite3.Connection, rawToken: str) -> None:
+    if not rawToken:
+        return
+    connection.execute("DELETE FROM user_sessions WHERE token_hash = ?", (HashToken(rawToken),))
+    connection.commit()
+
+
+def GetSessionUser(connection: sqlite3.Connection, rawToken: str) -> Optional[sqlite3.Row]:
+    if not rawToken:
+        return None
+    now = time.time()
+    row = connection.execute(
+        """
+        SELECT users.*
+        FROM user_sessions
+        JOIN users ON users.id = user_sessions.user_id
+        WHERE user_sessions.token_hash = ?
+          AND user_sessions.expires_at > ?
+          AND users.is_active = 1
+        LIMIT 1
+        """,
+        (HashToken(rawToken), now),
+    ).fetchone()
+    if row is None:
+        return None
+    connection.execute(
+        """
+        UPDATE user_sessions
+        SET last_seen_at = ?, expires_at = ?
+        WHERE token_hash = ?
+        """,
+        (now, now + SessionLifetimeSeconds, HashToken(rawToken)),
+    )
+    connection.commit()
+    return row
+
+
+def ListUsers(connection: sqlite3.Connection) -> List[Dict[str, Any]]:
+    return [
+        SerializeUserRow(row)
+        for row in connection.execute("SELECT * FROM users ORDER BY created_at ASC").fetchall()
+    ]
+
+
+def UpdateUserPermissions(
+    connection: sqlite3.Connection,
+    userId: str,
+    *,
+    isAdmin: Optional[bool] = None,
+    canUseAi: Optional[bool] = None,
+    isActive: Optional[bool] = None,
+) -> None:
+    fields: List[str] = []
+    values: List[Any] = []
+    if isAdmin is not None:
+        fields.append("is_admin = ?")
+        values.append(int(bool(isAdmin)))
+    if canUseAi is not None:
+        fields.append("can_use_ai = ?")
+        values.append(int(bool(canUseAi)))
+    if isActive is not None:
+        fields.append("is_active = ?")
+        values.append(int(bool(isActive)))
+    if not fields:
+        return
+    fields.append("updated_at = ?")
+    values.append(time.time())
+    values.append((userId or "").strip())
+    connection.execute(
+        f"UPDATE users SET {', '.join(fields)} WHERE id = ?",
+        values,
+    )
+    connection.commit()
+
+
+def GetDeckAccessRow(
+    connection: sqlite3.Connection,
+    deckId: str,
+    userId: str,
+) -> Optional[sqlite3.Row]:
+    normalizedUserId = (userId or "").strip()
+    return connection.execute(
+        """
+        SELECT
+            decks.*,
+            COALESCE(NULLIF(decks.display_name, ''), decks.name) AS resolved_name,
+            COALESCE(NULLIF(collections.display_name, ''), collections.name) AS resolved_collection_name,
+            CASE WHEN decks.owner_user_id = ? THEN 1 ELSE 0 END AS is_owner,
+            CASE
+                WHEN decks.owner_user_id = ? THEN 1
+                WHEN EXISTS (
+                    SELECT 1
+                    FROM deck_collaborators
+                    WHERE deck_collaborators.deck_id = decks.id
+                      AND deck_collaborators.user_id = ?
+                ) THEN 1
+                ELSE 0
+            END AS can_access
+        FROM decks
+        JOIN collections ON collections.id = decks.collection_id
+        WHERE decks.id = ?
+        LIMIT 1
+        """,
+        (normalizedUserId, normalizedUserId, normalizedUserId, (deckId or "").strip()),
+    ).fetchone()
+
+
+def UserCanAccessDeck(connection: sqlite3.Connection, deckId: str, userId: str) -> bool:
+    row = GetDeckAccessRow(connection, deckId, userId)
+    return row is not None and bool(row["can_access"])
+
+
+def UserCanEditDeck(connection: sqlite3.Connection, deckId: str, userId: str) -> bool:
+    return UserCanAccessDeck(connection, deckId, userId)
+
+
+def ListDeckCollaborators(connection: sqlite3.Connection, deckId: str) -> List[Dict[str, Any]]:
+    rows = connection.execute(
+        """
+        SELECT users.id, users.username, users.email, deck_collaborators.role, deck_collaborators.created_at
+        FROM deck_collaborators
+        JOIN users ON users.id = deck_collaborators.user_id
+        WHERE deck_collaborators.deck_id = ?
+        ORDER BY users.username
+        """,
+        ((deckId or "").strip(),),
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def RemoveDeckCollaborator(connection: sqlite3.Connection, deckId: str, userId: str) -> int:
+    cursor = connection.execute(
+        "DELETE FROM deck_collaborators WHERE deck_id = ? AND user_id = ?",
+        ((deckId or "").strip(), (userId or "").strip()),
+    )
+    connection.commit()
+    return max(cursor.rowcount, 0)
+
+
+def CreateDeckInvite(
+    connection: sqlite3.Connection,
+    deckId: str,
+    invitedByUserId: str,
+    invitedEmail: str = "",
+    invitedUsername: str = "",
+) -> Dict[str, Any]:
+    normalizedEmail = NormalizeEmail(invitedEmail)
+    normalizedUsername = (invitedUsername or "").strip()
+    if not normalizedEmail and not normalizedUsername:
+        raise RuntimeError("Either invitedEmail or invitedUsername is required.")
+
+    rawToken = secrets.token_urlsafe(24)
+    now = time.time()
+    inviteId = str(uuid.uuid4())
+    connection.execute(
+        """
+        INSERT INTO deck_invites (
+            id, deck_id, invited_email, invited_username, token_hash, token_preview,
+            invited_by_user_id, accepted_by_user_id, expires_at, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, '', ?, ?)
+        """,
+        (
+            inviteId,
+            (deckId or "").strip(),
+            normalizedEmail,
+            normalizedUsername,
+            HashToken(rawToken),
+            rawToken[:8],
+            (invitedByUserId or "").strip(),
+            now + InviteLifetimeSeconds,
+            now,
+        ),
+    )
+    connection.commit()
+    return {
+        "id": inviteId,
+        "deck_id": (deckId or "").strip(),
+        "token": rawToken,
+        "token_preview": rawToken[:8],
+        "invited_email": normalizedEmail,
+        "invited_username": normalizedUsername,
+        "expires_at": now + InviteLifetimeSeconds,
+    }
+
+
+def ListDeckInvites(connection: sqlite3.Connection, deckId: str) -> List[Dict[str, Any]]:
+    rows = connection.execute(
+        """
+        SELECT id, deck_id, invited_email, invited_username, token_preview, invited_by_user_id,
+               accepted_by_user_id, expires_at, created_at
+        FROM deck_invites
+        WHERE deck_id = ?
+        ORDER BY created_at DESC
+        """,
+        ((deckId or "").strip(),),
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def ListPendingInvitesForUser(
+    connection: sqlite3.Connection,
+    userId: str,
+    email: str,
+    username: str,
+) -> List[Dict[str, Any]]:
+    normalizedEmail = NormalizeEmail(email)
+    normalizedUsername = (username or "").strip()
+    rows = connection.execute(
+        """
+        SELECT
+            deck_invites.id,
+            deck_invites.deck_id,
+            deck_invites.invited_email,
+            deck_invites.invited_username,
+            deck_invites.token_preview,
+            deck_invites.expires_at,
+            deck_invites.created_at,
+            COALESCE(NULLIF(decks.display_name, ''), decks.name) AS deck_name,
+            COALESCE(NULLIF(collections.display_name, ''), collections.name) AS collection_name,
+            owners.username AS owner_username
+        FROM deck_invites
+        JOIN decks ON decks.id = deck_invites.deck_id
+        JOIN collections ON collections.id = decks.collection_id
+        JOIN users AS owners ON owners.id = decks.owner_user_id
+        WHERE deck_invites.accepted_by_user_id = ''
+          AND deck_invites.expires_at > ?
+          AND (
+                lower(deck_invites.invited_email) = lower(?)
+                OR lower(deck_invites.invited_username) = lower(?)
+              )
+          AND NOT EXISTS (
+                SELECT 1
+                FROM deck_collaborators
+                WHERE deck_collaborators.deck_id = deck_invites.deck_id
+                  AND deck_collaborators.user_id = ?
+          )
+        ORDER BY deck_invites.created_at DESC
+        """,
+        (time.time(), normalizedEmail, normalizedUsername, (userId or "").strip()),
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def AcceptDeckInvite(connection: sqlite3.Connection, rawToken: str, userId: str) -> Optional[Dict[str, Any]]:
+    row = connection.execute(
+        """
+        SELECT *
+        FROM deck_invites
+        WHERE token_hash = ?
+          AND accepted_by_user_id = ''
+          AND expires_at > ?
+        LIMIT 1
+        """,
+        (HashToken(rawToken), time.time()),
+    ).fetchone()
+    if row is None:
+        return None
+
+    connection.execute(
+        """
+        INSERT OR IGNORE INTO deck_collaborators (id, deck_id, user_id, role, created_at)
+        VALUES (?, ?, ?, 'editor', ?)
+        """,
+        (str(uuid.uuid4()), row["deck_id"], (userId or "").strip(), time.time()),
+    )
+    connection.execute(
+        "UPDATE deck_invites SET accepted_by_user_id = ? WHERE id = ?",
+        ((userId or "").strip(), row["id"]),
+    )
+    connection.commit()
+    return dict(row)
+
+
+def AcceptDeckInviteById(
+    connection: sqlite3.Connection,
+    inviteId: str,
+    userId: str,
+    email: str,
+    username: str,
+) -> Optional[Dict[str, Any]]:
+    normalizedEmail = NormalizeEmail(email)
+    normalizedUsername = (username or "").strip()
+    row = connection.execute(
+        """
+        SELECT *
+        FROM deck_invites
+        WHERE id = ?
+          AND accepted_by_user_id = ''
+          AND expires_at > ?
+          AND (
+                lower(invited_email) = lower(?)
+                OR lower(invited_username) = lower(?)
+              )
+        LIMIT 1
+        """,
+        (
+            (inviteId or "").strip(),
+            time.time(),
+            normalizedEmail,
+            normalizedUsername,
+        ),
+    ).fetchone()
+    if row is None:
+        return None
+
+    connection.execute(
+        """
+        INSERT OR IGNORE INTO deck_collaborators (id, deck_id, user_id, role, created_at)
+        VALUES (?, ?, ?, 'editor', ?)
+        """,
+        (str(uuid.uuid4()), row["deck_id"], (userId or "").strip(), time.time()),
+    )
+    connection.execute(
+        "UPDATE deck_invites SET accepted_by_user_id = ? WHERE id = ?",
+        ((userId or "").strip(), row["id"]),
+    )
+    connection.commit()
+    return dict(row)
+
+
+def CloneTemplateDataToUser(connection: sqlite3.Connection, userId: str) -> None:
+    normalizedUserId = (userId or "").strip()
+    if not normalizedUserId:
+        return
+
+    globalRows = connection.execute(
+        "SELECT * FROM global_cards WHERE owner_user_id = '' ORDER BY created_at ASC"
+    ).fetchall()
+    for globalRow in globalRows:
+        payload = dict(globalRow)
+        payload["owner_user_id"] = normalizedUserId
+        payload["image_files"] = DecodeJsonStringList(globalRow["image_files_json"])
+        payload["video_files"] = DecodeJsonStringList(globalRow["video_files_json"])
+        payload["tags"] = DecodeJsonStringList(globalRow["tags_json"])
+        payload["dictionary_pos_tags"] = DecodeJsonStringList(globalRow["dictionary_pos_tags"])
+        AddGlobalCard(connection, payload)
+
+    templateCollections = connection.execute(
+        "SELECT * FROM collections WHERE owner_user_id = '' ORDER BY created_at ASC"
+    ).fetchall()
+    collectionIdMap: Dict[str, str] = {}
+    deckIdMap: Dict[str, str] = {}
+
+    for collectionRow in templateCollections:
+        displayName = (collectionRow["display_name"] or "").strip() or DecodeScopedDisplayName(collectionRow["name"])
+        CreateCollection(connection, displayName, normalizedUserId)
+        createdCollection = connection.execute(
+            """
+            SELECT id
+            FROM collections
+            WHERE owner_user_id = ? AND display_name = ?
+            ORDER BY created_at DESC
+            LIMIT 1
+            """,
+            (normalizedUserId, displayName),
+        ).fetchone()
+        if createdCollection is None:
+            continue
+        collectionIdMap[collectionRow["id"]] = createdCollection["id"]
+
+    templateDecks = connection.execute(
+        "SELECT * FROM decks WHERE owner_user_id = '' ORDER BY created_at ASC"
+    ).fetchall()
+    for deckRow in templateDecks:
+        newCollectionId = collectionIdMap.get(deckRow["collection_id"])
+        if not newCollectionId:
+            continue
+        displayName = (deckRow["display_name"] or "").strip() or DecodeScopedDisplayName(deckRow["name"])
+        CreateDeck(connection, newCollectionId, displayName, normalizedUserId)
+        createdDeck = connection.execute(
+            """
+            SELECT id
+            FROM decks
+            WHERE owner_user_id = ? AND collection_id = ? AND display_name = ?
+            ORDER BY created_at DESC
+            LIMIT 1
+            """,
+            (normalizedUserId, newCollectionId, displayName),
+        ).fetchone()
+        if createdDeck is None:
+            continue
+        deckIdMap[deckRow["id"]] = createdDeck["id"]
+
+    templateCards = connection.execute(
+        """
+        SELECT cards.*
+        FROM cards
+        JOIN decks ON decks.id = cards.deck_id
+        WHERE decks.owner_user_id = ''
+        ORDER BY cards.created_at ASC
+        """
+    ).fetchall()
+    for cardRow in templateCards:
+        newDeckId = deckIdMap.get(cardRow["deck_id"])
+        if not newDeckId:
+            continue
+        AddCard(
+            connection,
+            newDeckId,
+            {
+                "kanji": cardRow["kanji"],
+                "kana": cardRow["kana"],
+                "english": cardRow["english"],
+                "notes": cardRow["notes"],
+                "source_text": cardRow["source_text"],
+                "schema_key": cardRow["schema_key"],
+                "media_type": cardRow["media_type"],
+                "media_files": DecodeJsonStringList(cardRow["media_files_json"]),
+                "tags": DecodeJsonStringList(cardRow["tags_json"]),
+                "dictionary_entry_id": cardRow["dictionary_entry_id"],
+                "dictionary_headword": cardRow["dictionary_headword"],
+                "dictionary_reading": cardRow["dictionary_reading"],
+                "dictionary_gloss": cardRow["dictionary_gloss"],
+                "dictionary_pos": cardRow["dictionary_pos"],
+                "dictionary_pos_tags": DecodeJsonStringList(cardRow["dictionary_pos_tags"]),
+                "verb_type": cardRow["verb_type"],
+                "word_form": cardRow["word_form"],
+            },
+        )
+
+
 def SerializeAiScenarioRow(row: sqlite3.Row) -> Dict[str, Any]:
     return {
         "id": row["id"],
@@ -1275,7 +2268,12 @@ def GetAiScenario(connection: sqlite3.Connection, scenarioId: str) -> sqlite3.Ro
     return row
 
 
-def ListAiScenarios(connection: sqlite3.Connection, deckId: str, mode: str) -> List[Dict[str, Any]]:
+def ListAiScenarios(
+    connection: sqlite3.Connection,
+    ownerUserId: str,
+    deckId: str,
+    mode: str,
+) -> List[Dict[str, Any]]:
     rows = connection.execute(
         """
         SELECT
@@ -1284,18 +2282,20 @@ def ListAiScenarios(connection: sqlite3.Connection, deckId: str, mode: str) -> L
             COALESCE(reading_materials.updated_at, 0) AS reading_material_updated_at
         FROM ai_scenarios
         LEFT JOIN reading_materials ON reading_materials.scenario_id = ai_scenarios.id
-        WHERE ai_scenarios.deck_id = ?
+        WHERE ai_scenarios.owner_user_id = ?
+          AND ai_scenarios.deck_id = ?
           AND ai_scenarios.mode = ?
         ORDER BY ai_scenarios.is_custom DESC, ai_scenarios.times_completed DESC,
                  ai_scenarios.times_used ASC, ai_scenarios.updated_at DESC, ai_scenarios.created_at DESC
         """,
-        (deckId, mode),
+        ((ownerUserId or "").strip(), deckId, mode),
     ).fetchall()
     return [SerializeAiScenarioRow(row) for row in rows]
 
 
 def SaveAiScenario(
     connection: sqlite3.Connection,
+    ownerUserId: str,
     deckId: str,
     mode: str,
     title: str,
@@ -1307,6 +2307,7 @@ def SaveAiScenario(
     tags: List[str],
     isCustom: bool = False,
 ) -> Dict[str, Any]:
+    normalizedOwnerUserId = (ownerUserId or "").strip()
     normalizedDeckId = (deckId or "").strip()
     normalizedMode = (mode or "").strip()
     normalizedTitle = (title or "").strip()
@@ -1317,14 +2318,15 @@ def SaveAiScenario(
     normalizedQuestionCount = max(1, int(questionCount or 1))
     normalizedTags = NormalizeStringList(tags or [])
 
-    if not normalizedDeckId or not normalizedMode or not normalizedTitle:
-        raise RuntimeError("deckId, mode, and title are required.")
+    if not normalizedOwnerUserId or not normalizedDeckId or not normalizedMode or not normalizedTitle:
+        raise RuntimeError("ownerUserId, deckId, mode, and title are required.")
 
     existingRow = connection.execute(
         """
         SELECT id
         FROM ai_scenarios
-        WHERE deck_id = ?
+        WHERE owner_user_id = ?
+          AND deck_id = ?
           AND mode = ?
           AND title = ?
           AND topic_hint = ?
@@ -1333,6 +2335,7 @@ def SaveAiScenario(
         LIMIT 1
         """,
         (
+            normalizedOwnerUserId,
             normalizedDeckId,
             normalizedMode,
             normalizedTitle,
@@ -1348,13 +2351,14 @@ def SaveAiScenario(
         connection.execute(
             """
             INSERT INTO ai_scenarios (
-                id, deck_id, mode, title, summary, topic_hint, difficulty, style,
+                id, owner_user_id, deck_id, mode, title, summary, topic_hint, difficulty, style,
                 question_count, tags_json, is_custom, times_used, times_completed,
                 created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?)
             """,
             (
                 scenarioId,
+                normalizedOwnerUserId,
                 normalizedDeckId,
                 normalizedMode,
                 normalizedTitle,
@@ -1441,11 +2445,12 @@ def SerializeReadingMaterialRow(row: sqlite3.Row) -> Dict[str, Any]:
 
 def GetReadingMaterialByScenarioId(
     connection: sqlite3.Connection,
+    ownerUserId: str,
     scenarioId: str,
 ) -> Optional[Dict[str, Any]]:
     row = connection.execute(
-        "SELECT * FROM reading_materials WHERE scenario_id = ? LIMIT 1",
-        (scenarioId,),
+        "SELECT * FROM reading_materials WHERE owner_user_id = ? AND scenario_id = ? LIMIT 1",
+        ((ownerUserId or "").strip(), scenarioId),
     ).fetchone()
     if row is None:
         return None
@@ -1454,6 +2459,7 @@ def GetReadingMaterialByScenarioId(
 
 def SaveReadingMaterial(
     connection: sqlite3.Connection,
+    ownerUserId: str,
     scenarioId: str,
     deckId: str,
     title: str,
@@ -1461,6 +2467,7 @@ def SaveReadingMaterial(
     passage: str,
     newWords: List[Dict[str, Any]],
 ) -> Dict[str, Any]:
+    normalizedOwnerUserId = (ownerUserId or "").strip()
     normalizedScenarioId = (scenarioId or "").strip()
     normalizedDeckId = (deckId or "").strip()
     normalizedTitle = (title or "").strip()
@@ -1468,12 +2475,12 @@ def SaveReadingMaterial(
     normalizedPassage = (passage or "").strip()
     normalizedNewWords = [dict(item) for item in (newWords or []) if isinstance(item, dict)]
 
-    if not normalizedScenarioId or not normalizedDeckId or not normalizedPassage:
-        raise RuntimeError("scenarioId, deckId, and passage are required.")
+    if not normalizedOwnerUserId or not normalizedScenarioId or not normalizedDeckId or not normalizedPassage:
+        raise RuntimeError("ownerUserId, scenarioId, deckId, and passage are required.")
 
     existingRow = connection.execute(
-        "SELECT id FROM reading_materials WHERE scenario_id = ? LIMIT 1",
-        (normalizedScenarioId,),
+        "SELECT id FROM reading_materials WHERE owner_user_id = ? AND scenario_id = ? LIMIT 1",
+        (normalizedOwnerUserId, normalizedScenarioId),
     ).fetchone()
     now = time.time()
     if existingRow is None:
@@ -1481,12 +2488,13 @@ def SaveReadingMaterial(
         connection.execute(
             """
             INSERT INTO reading_materials (
-                id, scenario_id, deck_id, title, source_note, passage,
+                id, owner_user_id, scenario_id, deck_id, title, source_note, passage,
                 new_words_json, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 materialId,
+                normalizedOwnerUserId,
                 normalizedScenarioId,
                 normalizedDeckId,
                 normalizedTitle,
@@ -1521,8 +2529,8 @@ def SaveReadingMaterial(
 
     connection.commit()
     row = connection.execute(
-        "SELECT * FROM reading_materials WHERE id = ? LIMIT 1",
-        (materialId,),
+        "SELECT * FROM reading_materials WHERE owner_user_id = ? AND id = ? LIMIT 1",
+        (normalizedOwnerUserId, materialId),
     ).fetchone()
     if row is None:
         raise RuntimeError("Reading material was not saved.")
@@ -1554,6 +2562,7 @@ def GetConversationSession(connection: sqlite3.Connection, sessionId: str) -> sq
 
 def CreateConversationSession(
     connection: sqlite3.Connection,
+    ownerUserId: str,
     scenarioId: str,
     deckId: str,
     messages: List[Dict[str, Any]],
@@ -1563,11 +2572,12 @@ def CreateConversationSession(
     connection.execute(
         """
         INSERT INTO conversation_sessions (
-            id, scenario_id, deck_id, messages_json, summary_json, status, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, '{}', 'active', ?, ?)
+            id, owner_user_id, scenario_id, deck_id, messages_json, summary_json, status, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, '{}', 'active', ?, ?)
         """,
         (
             sessionId,
+            (ownerUserId or "").strip(),
             (scenarioId or "").strip(),
             (deckId or "").strip(),
             json.dumps([dict(item) for item in (messages or []) if isinstance(item, dict)], ensure_ascii=False),
@@ -1610,22 +2620,64 @@ def UpdateConversationSession(
     return SerializeConversationSessionRow(GetConversationSession(connection, sessionId))
 
 
-def GetDashboardRows(connection: sqlite3.Connection) -> List[sqlite3.Row]:
+def GetDashboardRows(connection: sqlite3.Connection, ownerUserId: str) -> List[sqlite3.Row]:
     return connection.execute(
         """
-        SELECT collections.name AS collection_name, decks.name AS deck_name, COUNT(cards.id) AS card_count
+        SELECT
+            COALESCE(NULLIF(collections.display_name, ''), collections.name) AS collection_name,
+            COALESCE(NULLIF(decks.display_name, ''), decks.name) AS deck_name,
+            COUNT(cards.id) AS card_count
         FROM decks
         JOIN collections ON collections.id = decks.collection_id
         LEFT JOIN cards ON cards.deck_id = decks.id
+        WHERE decks.owner_user_id = ?
+           OR EXISTS (
+                SELECT 1
+                FROM deck_collaborators
+                WHERE deck_collaborators.deck_id = decks.id
+                  AND deck_collaborators.user_id = ?
+           )
         GROUP BY decks.id
-        ORDER BY collections.name, decks.name
-        """
+        ORDER BY collection_name, deck_name
+        """,
+        ((ownerUserId or "").strip(), (ownerUserId or "").strip()),
     ).fetchall()
 
 
-def GetTotalDeckCount(connection: sqlite3.Connection) -> int:
-    return int(connection.execute("SELECT COUNT(*) FROM decks").fetchone()[0])
+def GetTotalDeckCount(connection: sqlite3.Connection, ownerUserId: str) -> int:
+    return int(
+        connection.execute(
+            """
+            SELECT COUNT(*)
+            FROM decks
+            WHERE owner_user_id = ?
+               OR EXISTS (
+                    SELECT 1
+                    FROM deck_collaborators
+                    WHERE deck_collaborators.deck_id = decks.id
+                      AND deck_collaborators.user_id = ?
+               )
+            """,
+            ((ownerUserId or "").strip(), (ownerUserId or "").strip()),
+        ).fetchone()[0]
+    )
 
 
-def GetTotalCardCount(connection: sqlite3.Connection) -> int:
-    return int(connection.execute("SELECT COUNT(*) FROM cards").fetchone()[0])
+def GetTotalCardCount(connection: sqlite3.Connection, ownerUserId: str) -> int:
+    return int(
+        connection.execute(
+            """
+            SELECT COUNT(*)
+            FROM cards
+            JOIN decks ON decks.id = cards.deck_id
+            WHERE decks.owner_user_id = ?
+               OR EXISTS (
+                    SELECT 1
+                    FROM deck_collaborators
+                    WHERE deck_collaborators.deck_id = decks.id
+                      AND deck_collaborators.user_id = ?
+               )
+            """,
+            ((ownerUserId or "").strip(), (ownerUserId or "").strip()),
+        ).fetchone()[0]
+    )

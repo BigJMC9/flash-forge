@@ -25,6 +25,36 @@ export interface CollectionRow {
   name: string;
 }
 
+export interface UserAccountRow {
+  id: string;
+  username: string;
+  email: string;
+  is_admin: boolean;
+  can_use_ai: boolean;
+  is_active: boolean;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface PendingInviteRow {
+  id: string;
+  deck_id: string;
+  invited_email: string;
+  invited_username: string;
+  token_preview: string;
+  expires_at: number;
+  created_at: number;
+  deck_name: string;
+  collection_name: string;
+  owner_username: string;
+}
+
+export interface AuthState {
+  is_authenticated: boolean;
+  user: UserAccountRow | null;
+  pending_invites: PendingInviteRow[];
+}
+
 export interface DeckRow {
   id: string;
   collection_id: string;
@@ -32,6 +62,7 @@ export interface DeckRow {
   name: string;
   label: string;
   card_count: number;
+  is_owner: boolean;
 }
 
 export interface DashboardRow {
@@ -71,6 +102,7 @@ export interface BootstrapPayload {
   collections: CollectionRow[];
   decks: DeckRow[];
   dashboard: DashboardSummary;
+  auth: AuthState;
   defaults: {
     schema_key: string;
     word_form: string;
@@ -343,6 +375,26 @@ export interface ConversationCompleteResponse {
   feedback: ConversationFeedback;
   messages: ConversationMessage[];
   status: string;
+}
+
+export interface DeckCollaboratorRow {
+  id: string;
+  username: string;
+  email: string;
+  role: string;
+  created_at: number;
+}
+
+export interface DeckInviteRow {
+  id: string;
+  deck_id: string;
+  invited_email: string;
+  invited_username: string;
+  token_preview: string;
+  invited_by_user_id: string;
+  accepted_by_user_id: string;
+  expires_at: number;
+  created_at: number;
 }
 
 export interface ScanPreviewRow {
