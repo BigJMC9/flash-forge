@@ -1,11 +1,14 @@
 import re
+import sys
 import threading
 from typing import Any, Dict, List, Optional, Tuple
 
 try:
     from jamdict import Jamdict
-except ImportError:  # pragma: no cover - handled at runtime in GetJamdictClient
+    JamdictImportError: Optional[ImportError] = None
+except ImportError as error:  # pragma: no cover - handled at runtime in GetJamdictClient
     Jamdict = None  # type: ignore[assignment]
+    JamdictImportError = error
 
 VerbFormLabels = {
     "dictionary": "Plain (dictionary)",
@@ -210,8 +213,14 @@ def NormalizeNumericJapaneseSurface(value: str) -> str:
 
 def GetJamdictClient() -> Any:
     if Jamdict is None:
+        details = (
+            f" Python executable: {sys.executable}."
+            if not JamdictImportError
+            else f" Python executable: {sys.executable}. Import error: {JamdictImportError}."
+        )
         raise RuntimeError(
-            "jamdict is not installed. Install with: pip install jamdict jamdict-data"
+            "jamdict is not installed. Install with: pip install jamdict jamdict-data-fix."
+            f"{details}"
         )
     cachedClient = getattr(ThreadLocalState, "jamdict_client", None)
     if cachedClient is None:

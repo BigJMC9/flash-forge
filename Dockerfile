@@ -24,7 +24,7 @@ RUN apt-get update \
   && rm -rf /var/lib/apt/lists/*
 
 COPY python_sidecar/requirements.txt /app/python_sidecar/requirements.txt
-RUN pip3 install --no-cache-dir -r /app/python_sidecar/requirements.txt jamdict jamdict-data
+RUN pip3 install --no-cache-dir -r /app/python_sidecar/requirements.txt
 
 COPY --from=builder /app/dist /app/dist
 COPY --from=builder /app/server /app/server
