@@ -341,7 +341,15 @@ export function Dictionary() {
         <div className="grid xl:grid-cols-[minmax(0,1.7fr)_minmax(340px,1fr)] gap-6 items-start">
           <div className="app-table-wrap">
             <div className="overflow-x-auto">
-              <table className="w-full">
+              <table className="w-full min-w-[1040px] table-fixed">
+                <colgroup>
+                  <col className="w-[52px]" />
+                  <col className="w-[150px]" />
+                  <col className="w-[130px]" />
+                  <col className="w-[280px]" />
+                  <col className="w-[150px]" />
+                  <col className="w-[278px]" />
+                </colgroup>
                 <thead className="app-table-head">
                   <tr>
                     <th className="app-table-th">Sel</th>
@@ -386,17 +394,19 @@ export function Dictionary() {
                           </button>
                         </td>
                         <td className="app-table-td font-semibold">
-                          <div className="flex items-start gap-2">
-                            <span>{entry.headword}</span>
+                          <div className="flex flex-wrap items-start gap-2">
+                            <span className="whitespace-nowrap break-keep leading-6">
+                              {entry.headword}
+                            </span>
                             {isSelected && (
-                              <span className="app-badge-accent">
+                              <span className="app-badge-accent whitespace-nowrap">
                                 Selected
                               </span>
                             )}
                           </div>
                           {entry.search_match?.relation === 'child' &&
                             entry.stem_entry && (
-                              <div className="text-xs text-gray-500 mt-1 font-normal">
+                              <div className="text-xs text-gray-500 mt-1 font-normal break-keep">
                                 Stem:{' '}
                                 {formatSurface(
                                   entry.stem_entry.word,
@@ -406,7 +416,9 @@ export function Dictionary() {
                               </div>
                             )}
                         </td>
-                        <td className="app-table-td text-gray-600">{entry.reading}</td>
+                        <td className="app-table-td text-gray-600 whitespace-nowrap break-keep">
+                          {entry.reading}
+                        </td>
                         <td className="app-table-td">
                           <div>{entry.english}</div>
                           {entry.glosses.length > 0 && (
