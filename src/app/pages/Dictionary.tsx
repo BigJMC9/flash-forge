@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   CheckSquare,
   Plus,
@@ -67,6 +67,7 @@ export function Dictionary() {
   const [tags, setTags] = useState('japanese,jamdict');
   const [notes, setNotes] = useState('');
   const [englishOverride, setEnglishOverride] = useState('');
+  const searchRequestIdRef = useRef(0);
 
   const selectedEntry =
     results.find((entry) => entry.entry_id === selectedEntryId) ?? null;
@@ -85,12 +86,16 @@ export function Dictionary() {
     );
   }, [results]);
 
-  const handleSearch = async () => {
-    const trimmedQuery = query.trim();
+  const runSearch = useCallback(async (rawQuery: string) => {
+    const trimmedQuery = rawQuery.trim();
+    const requestId = searchRequestIdRef.current + 1;
+    searchRequestIdRef.current = requestId;
+
     if (!trimmedQuery) {
       setResults([]);
       setSelectedIds(new Set());
       setSelectedEntryId('');
+      setIsSearching(false);
       return;
     }
 
@@ -103,16 +108,49 @@ export function Dictionary() {
           limit: 50,
         },
       );
+
+      if (requestId !== searchRequestIdRef.current) {
+        return;
+      }
+
       setResults(response.results ?? []);
       setSelectedIds(new Set());
     } catch (error) {
+      if (requestId !== searchRequestIdRef.current) {
+        return;
+      }
+
       setStatus({
         type: 'error',
         message: errorMessage(error),
       });
     } finally {
-      setIsSearching(false);
+      if (requestId === searchRequestIdRef.current) {
+        setIsSearching(false);
+      }
     }
+  }, [setStatus]);
+
+  useEffect(() => {
+    const trimmedQuery = query.trim();
+    if (!trimmedQuery) {
+      searchRequestIdRef.current += 1;
+      setResults([]);
+      setSelectedIds(new Set());
+      setSelectedEntryId('');
+      setIsSearching(false);
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      void runSearch(trimmedQuery);
+    }, 250);
+
+    return () => window.clearTimeout(timer);
+  }, [query, runSearch]);
+
+  const handleSearch = async () => {
+    await runSearch(query);
   };
 
   const toggleSelection = (entryId: string) => {

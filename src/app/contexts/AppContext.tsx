@@ -1,5 +1,6 @@
 import React, {
   createContext,
+  useCallback,
   useContext,
   useEffect,
   useMemo,
@@ -92,7 +93,7 @@ interface AppContextType {
   setStatus: (status: StatusMessage | null) => void;
   setCurrentCollection: (id: string | null) => void;
   setCurrentDeck: (id: string | null) => void;
-  refreshBootstrap: () => Promise<void>;
+  refreshBootstrap: (options?: { showLoading?: boolean }) => Promise<void>;
   login: (identifier: string, password: string) => Promise<boolean>;
   register: (options: RegisterOptions) => Promise<boolean>;
   logout: () => Promise<boolean>;
@@ -125,7 +126,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     readStoredValue(CURRENT_DECK_STORAGE_KEY),
   );
 
-  const applyBootstrap = (payload: BootstrapPayload) => {
+  const applyBootstrap = useCallback((payload: BootstrapPayload) => {
     setBootstrap(payload);
 
     if (!payload.auth.is_authenticated) {
@@ -136,22 +137,28 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     const collectionIds = payload.collections.map((collection) => collection.id);
     const deckIds = payload.decks.map((deck) => deck.id);
-    const nextCollectionId = normalizeSelectedId(
-      currentCollectionId ?? readStoredValue(CURRENT_COLLECTION_STORAGE_KEY),
-      collectionIds,
+    setCurrentCollectionId((previous) =>
+      normalizeSelectedId(
+        previous ?? readStoredValue(CURRENT_COLLECTION_STORAGE_KEY),
+        collectionIds,
+      ),
     );
-    const nextDeckId = normalizeSelectedId(
-      currentDeckId ?? readStoredValue(CURRENT_DECK_STORAGE_KEY),
-      deckIds,
+    setCurrentDeckId((previous) =>
+      normalizeSelectedId(
+        previous ?? readStoredValue(CURRENT_DECK_STORAGE_KEY),
+        deckIds,
+      ),
     );
+  }, []);
 
-    setCurrentCollectionId(nextCollectionId);
-    setCurrentDeckId(nextDeckId);
-  };
-
-  const refreshBootstrap = async () => {
+  const refreshBootstrap = useCallback(async (
+    options: { showLoading?: boolean } = {},
+  ) => {
+    const showLoading = options.showLoading ?? false;
     try {
-      setIsLoading(true);
+      if (showLoading) {
+        setIsLoading(true);
+      }
       const payload = await callAction<BootstrapPayload>('bootstrap');
       applyBootstrap(payload);
     } catch (error) {
@@ -160,13 +167,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         message: errorMessage(error),
       });
     } finally {
-      setIsLoading(false);
+      if (showLoading) {
+        setIsLoading(false);
+      }
     }
-  };
+  }, [applyBootstrap]);
 
   useEffect(() => {
-    void refreshBootstrap();
-  }, []);
+    void refreshBootstrap({ showLoading: true });
+  }, [refreshBootstrap]);
 
   useEffect(() => {
     writeStoredValue(CURRENT_COLLECTION_STORAGE_KEY, currentCollectionId);
@@ -239,7 +248,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     try {
       setIsLoading(true);
       await action();
-      await refreshBootstrap();
+      await refreshBootstrap({ showLoading: true });
       setStatus({
         type: 'success',
         message: successMessage,
@@ -433,6 +442,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       pendingInvites,
       practiceModes,
       status,
+      refreshBootstrap,
       verbForms,
       verbTypes,
     ],

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams } from 'react-router';
 import {
   CheckSquare,
@@ -61,6 +61,7 @@ export function DeckOperations() {
   const [deleteCardsDialogOpen, setDeleteCardsDialogOpen] = useState(false);
   const [collaboratorToRemove, setCollaboratorToRemove] =
     useState<DeckCollaboratorRow | null>(null);
+  const rowsRequestIdRef = useRef(0);
 
   const deck = decks.find((item) => item.id === deckId) ?? null;
   const inviteLink = useMemo(() => {
@@ -78,7 +79,10 @@ export function DeckOperations() {
     return ids.length === 1 ? ids[0] : '';
   }, [editingCardId, selectedIds]);
 
-  const loadRows = async () => {
+  const loadRows = useCallback(async (search = searchText) => {
+    const requestId = rowsRequestIdRef.current + 1;
+    rowsRequestIdRef.current = requestId;
+
     if (!deckId) {
       setRows([]);
       setSelectedIds(new Set());
@@ -90,9 +94,13 @@ export function DeckOperations() {
         'list_deck_cards',
         {
           deck_id: deckId,
-          search: searchText,
+          search,
         },
       );
+
+      if (requestId !== rowsRequestIdRef.current) {
+        return;
+      }
 
       setRows(response.rows ?? []);
       setSelectedIds((previous) => {
@@ -105,14 +113,18 @@ export function DeckOperations() {
         return next;
       });
     } catch (error) {
+      if (requestId !== rowsRequestIdRef.current) {
+        return;
+      }
+
       setStatus({
         type: 'error',
         message: errorMessage(error),
       });
     }
-  };
+  }, [deckId, searchText, setStatus]);
 
-  const loadCollaboration = async () => {
+  const loadCollaboration = useCallback(async () => {
     if (!deckId) {
       setCollaborators([]);
       setInvites([]);
@@ -135,15 +147,29 @@ export function DeckOperations() {
         message: errorMessage(error),
       });
     }
-  };
+  }, [deckId, setStatus]);
 
   useEffect(() => {
     if (deckId) {
       setCurrentDeck(deckId);
-      void loadRows();
       void loadCollaboration();
+    } else {
+      setRows([]);
+      setSelectedIds(new Set());
     }
-  }, [deckId]);
+  }, [deckId, loadCollaboration, setCurrentDeck]);
+
+  useEffect(() => {
+    if (!deckId) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      void loadRows(searchText);
+    }, 200);
+
+    return () => window.clearTimeout(timer);
+  }, [deckId, loadRows, searchText]);
 
   const handleCreateInvite = async () => {
     if (!deck?.is_owner) {
