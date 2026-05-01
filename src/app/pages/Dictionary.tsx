@@ -225,7 +225,7 @@ export function Dictionary() {
       </div>
 
       <div className="app-panel p-6">
-        <div className="flex gap-3">
+        <div className="flex flex-col gap-3 sm:flex-row">
           <input
             type="text"
             value={query}
@@ -346,7 +346,7 @@ export function Dictionary() {
           </div>
         </div>
 
-        <div className="flex gap-3">
+        <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap">
           <button
             onClick={() => void handleAddEntries(Array.from(selectedIds))}
             disabled={selectedIds.size === 0}

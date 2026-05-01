@@ -41,10 +41,10 @@ export function StatusBar() {
 
   return (
     <div
-      className={`fixed bottom-4 right-4 z-50 flex max-w-sm items-center gap-3 rounded-lg border bg-white px-4 py-3 text-sm text-gray-800 shadow-lg ${tones[status.type]}`}
+      className={`fixed bottom-4 left-4 right-4 z-50 flex items-center gap-3 rounded-lg border bg-white px-4 py-3 text-sm text-gray-800 shadow-lg sm:left-auto sm:max-w-sm ${tones[status.type]}`}
     >
-      <Icon className={`h-5 w-5 ${iconTones[status.type]}`} />
-      <span>{status.message}</span>
+      <Icon className={`h-5 w-5 shrink-0 ${iconTones[status.type]}`} />
+      <span className="min-w-0">{status.message}</span>
     </div>
   );
 }

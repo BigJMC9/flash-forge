@@ -188,7 +188,7 @@ export function GlobalLibrary() {
 
       <div className="app-panel p-6">
         <h3 className="app-section-title mb-4">Import Deck Cards to Global Library</h3>
-        <div className="flex gap-3">
+        <div className="flex flex-col gap-3 sm:flex-row">
           <select
             value={sourceDeckId}
             onChange={(event) => setSourceDeckId(event.target.value)}
@@ -212,7 +212,7 @@ export function GlobalLibrary() {
       </div>
 
       <div className="app-panel p-6">
-        <div className="flex gap-3 mb-4">
+        <div className="mb-4 flex flex-col gap-3 sm:flex-row">
           <input
             type="text"
             value={searchText}
@@ -288,7 +288,7 @@ export function GlobalLibrary() {
           />
         </div>
 
-        <div className="flex gap-3">
+        <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap">
           <button
             onClick={() => void handleImportToDeck()}
             disabled={selectedIds.size === 0}
@@ -322,37 +322,37 @@ export function GlobalLibrary() {
       </div>
 
       {rows.length === 0 ? (
-        <div className="bg-white rounded-lg p-8 border border-gray-200 text-center text-gray-500">
+        <div className="app-empty">
           No global cards match the current search.
         </div>
       ) : (
-        <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-          <div className="overflow-x-auto">
+        <div className="app-table-wrap">
+          <div>
             <table className="w-full">
-              <thead className="bg-gray-50 border-b border-gray-200">
+              <thead className="app-table-head">
                 <tr>
-                  <th className="px-4 py-3 text-left">Sel</th>
-                  <th className="text-left px-4 py-3 text-sm text-gray-600">
+                  <th className="app-table-th">Sel</th>
+                  <th className="app-table-th">
                     Word
                   </th>
-                  <th className="text-left px-4 py-3 text-sm text-gray-600">
+                  <th className="app-table-th">
                     Reading
                   </th>
-                  <th className="text-left px-4 py-3 text-sm text-gray-600">
+                  <th className="app-table-th">
                     English
                   </th>
-                  <th className="text-left px-4 py-3 text-sm text-gray-600">
+                  <th className="app-table-th">
                     Forms
                   </th>
-                  <th className="text-left px-4 py-3 text-sm text-gray-600">
+                  <th className="app-table-th">
                     Tags
                   </th>
                 </tr>
               </thead>
               <tbody>
                 {rows.map((row) => (
-                  <tr key={row.id} className="border-b border-gray-100 align-top">
-                    <td className="px-4 py-3">
+                  <tr key={row.id} className="app-table-row align-top">
+                    <td className="app-table-td">
                       <button onClick={() => toggleSelection(row.id)}>
                         {selectedIds.has(row.id) ? (
                           <CheckSquare className="w-5 h-5 text-blue-600" />
@@ -361,9 +361,9 @@ export function GlobalLibrary() {
                         )}
                       </button>
                     </td>
-                    <td className="px-4 py-3 font-semibold">{row.kanji}</td>
-                    <td className="px-4 py-3 text-gray-600">{row.kana}</td>
-                    <td className="px-4 py-3">
+                    <td className="app-table-td font-semibold">{row.kanji}</td>
+                    <td className="app-table-td text-gray-600">{row.kana}</td>
+                    <td className="app-table-td">
                       <div>{row.english}</div>
                       {row.dictionary_gloss && (
                         <div className="text-xs text-gray-500 mt-1">
@@ -371,7 +371,7 @@ export function GlobalLibrary() {
                         </div>
                       )}
                     </td>
-                    <td className="px-4 py-3 text-sm text-gray-600">
+                    <td className="app-table-td text-sm text-gray-600">
                       <div className="space-y-1">
                         {row.kanji_masu && <div>Masu: {row.kanji_masu}</div>}
                         {row.kanji_te && <div>Te: {row.kanji_te}</div>}
@@ -381,7 +381,7 @@ export function GlobalLibrary() {
                         )}
                       </div>
                     </td>
-                    <td className="px-4 py-3 text-sm">
+                    <td className="app-table-td text-sm">
                       <div className="flex flex-wrap gap-2">
                         {row.tags.map((tag) => (
                           <span

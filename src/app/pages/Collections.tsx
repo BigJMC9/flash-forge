@@ -130,7 +130,10 @@ export function Collections() {
 
       <div className="app-panel p-6">
         <h3 className="app-section-title mb-4">Create Collection</h3>
-        <form onSubmit={handleCreateCollection} className="flex gap-3">
+        <form
+          onSubmit={handleCreateCollection}
+          className="flex flex-col gap-3 sm:flex-row"
+        >
           <input
             type="text"
             value={newCollectionName}
@@ -164,8 +167,8 @@ export function Collections() {
                 key={collection.id}
                 className="app-table-wrap"
               >
-                <div className="app-table-head flex items-center justify-between px-6 py-4">
-                  <div className="flex items-center gap-3">
+                <div className="app-table-head flex flex-col gap-3 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+                  <div className="flex min-w-0 items-center gap-3">
                     <Folder className="w-5 h-5 text-gray-600" />
                     {editingCollectionId === collection.id ? (
                       <input
@@ -188,7 +191,7 @@ export function Collections() {
                       <>
                         <button
                           onClick={() => setCurrentCollection(collection.id)}
-                          className="font-semibold text-left"
+                          className="min-w-0 text-left font-semibold"
                         >
                           {collection.name}
                         </button>
@@ -204,7 +207,7 @@ export function Collections() {
                       </>
                     )}
                   </div>
-                  <div className="flex items-center gap-3">
+                  <div className="flex w-full flex-wrap items-center gap-3 sm:w-auto">
                     <div className="text-sm text-gray-600">
                       {collectionDecks.length} deck(s)
                     </div>
@@ -227,7 +230,7 @@ export function Collections() {
                 <div className="p-6">
                   <form
                     onSubmit={(event) => void handleCreateDeck(event, collection.id)}
-                    className="flex gap-3 mb-4"
+                    className="mb-4 flex flex-col gap-3 sm:flex-row"
                   >
                     <input
                       type="text"

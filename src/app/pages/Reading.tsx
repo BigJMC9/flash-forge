@@ -390,7 +390,7 @@ export function Reading() {
       <div className="grid xl:grid-cols-[360px_minmax(0,1fr)] gap-6">
         <div className="space-y-6">
           <div className="app-panel p-6">
-            <div className="flex items-center justify-between gap-3 mb-3">
+            <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <h3 className="font-semibold">Scenario Pool</h3>
                 <p className="text-sm text-gray-600">
@@ -576,8 +576,8 @@ export function Reading() {
 
         <div className="space-y-6">
           {selectedScenario && (
-            <div className="bg-white rounded-lg p-6 border border-gray-200">
-              <div className="flex flex-wrap items-start justify-between gap-4">
+            <div className="app-panel p-6">
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                 <div>
                   <div className="text-sm uppercase tracking-[0.2em] text-slate-500 mb-2">
                     Selected Scenario
@@ -588,7 +588,7 @@ export function Reading() {
                   <p className="text-gray-600">{selectedScenario.summary}</p>
                 </div>
 
-                <div className="flex flex-wrap gap-2">
+                <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
                   <button
                     onClick={() => void startReading(false)}
                     disabled={isStartingSession}
@@ -641,7 +641,7 @@ export function Reading() {
           {session ? (
             <>
               <div className="app-panel p-6">
-                <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+                <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <div>
                     <div className="text-sm uppercase tracking-[0.2em] text-slate-500 mb-1">
                       Reading Session
@@ -672,7 +672,7 @@ export function Reading() {
               </div>
 
               <div className="app-panel p-6">
-                <div className="flex items-center justify-between gap-3 mb-6">
+                <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <div>
                     <h3 className="font-semibold">Reading Quiz</h3>
                     <p className="text-sm text-gray-600">
@@ -744,7 +744,7 @@ export function Reading() {
 
               {readingResults && (
                 <div className="app-panel p-6">
-                  <div className="flex items-center justify-between gap-4 mb-4">
+                  <div className="mb-4 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                     <div>
                       <h3 className="font-semibold">Results</h3>
                       <p className="text-sm text-gray-600">

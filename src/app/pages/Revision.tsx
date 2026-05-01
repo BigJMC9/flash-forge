@@ -96,7 +96,7 @@ export function Revision() {
       </div>
 
       <div className="app-panel mb-6 flex min-h-96 flex-col overflow-hidden">
-        <div className="flex items-center justify-between border-b border-gray-200 p-6">
+        <div className="flex flex-col gap-3 border-b border-gray-200 p-4 sm:flex-row sm:items-center sm:justify-between sm:p-6">
           <span className="text-sm text-gray-600">
             {currentCard?.schema_label} · {currentCard?.word_form}
           </span>
@@ -111,9 +111,9 @@ export function Revision() {
         <button
           type="button"
           onClick={() => setShowBack((previous) => !previous)}
-          className="flex min-h-[24rem] w-full flex-1 flex-col items-center justify-center p-12 text-center"
+          className="flex min-h-[18rem] w-full flex-1 flex-col items-center justify-center p-6 text-center sm:min-h-[24rem] sm:p-12"
         >
-          <div className="text-5xl mb-6">
+          <div className="mb-6 text-3xl sm:text-5xl">
             {showBack ? currentCard?.back : currentCard?.front}
           </div>
           {!showBack ? (
@@ -128,7 +128,7 @@ export function Revision() {
         </button>
       </div>
 
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <button
           onClick={() => {
             setCurrentIndex((previous) => Math.max(0, previous - 1));

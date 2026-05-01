@@ -384,7 +384,7 @@ export function Composer() {
           </div>
         )}
 
-        <div className="flex gap-3">
+        <div className="flex flex-col gap-3 sm:flex-row">
           <button
             onClick={() => void handleSave()}
             className="app-btn-primary"

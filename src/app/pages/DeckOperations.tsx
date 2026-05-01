@@ -419,7 +419,7 @@ export function DeckOperations() {
       </div>
 
       <div className="app-panel p-6">
-        <div className="flex items-start justify-between gap-4 mb-4">
+        <div className="mb-4 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <h3 className="font-semibold flex items-center gap-2">
               <Users className="w-5 h-5 text-blue-600" />
@@ -519,7 +519,7 @@ export function DeckOperations() {
                 {collaborators.map((collaborator) => (
                   <div
                     key={collaborator.id}
-                  className="flex items-center justify-between gap-3 rounded-lg border border-gray-200 bg-white px-3 py-3"
+                    className="flex flex-col gap-3 rounded-lg border border-gray-200 bg-white px-3 py-3 sm:flex-row sm:items-center sm:justify-between"
                   >
                     <div>
                       <div className="font-medium">{collaborator.username}</div>
@@ -568,7 +568,7 @@ export function DeckOperations() {
       </div>
 
       <div className="app-panel p-6">
-        <div className="flex gap-3">
+        <div className="flex flex-col gap-3 sm:flex-row">
           <input
             type="text"
             value={searchText}
@@ -712,7 +712,7 @@ export function DeckOperations() {
             </select>
           </div>
 
-          <div className="flex gap-3">
+          <div className="flex flex-col gap-3 sm:flex-row">
             <button
               onClick={() => void handleSaveEdit()}
               className="app-btn-primary"
@@ -773,7 +773,7 @@ export function DeckOperations() {
           </label>
         </div>
 
-        <div className="flex gap-3 items-center">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
           <button
             onClick={() => void handleReplaceMedia()}
             className="app-btn-primary"

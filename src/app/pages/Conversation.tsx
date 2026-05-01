@@ -312,7 +312,7 @@ export function Conversation() {
       <div className="grid xl:grid-cols-[360px_minmax(0,1fr)] gap-6">
         <div className="space-y-6">
           <div className="app-panel p-6">
-            <div className="flex items-center justify-between gap-3 mb-3">
+            <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <h3 className="font-semibold">Scenario Pool</h3>
                 <p className="text-sm text-gray-600">
@@ -477,7 +477,7 @@ export function Conversation() {
         <div className="space-y-6">
           {selectedScenario && (
             <div className="app-panel p-6">
-              <div className="flex flex-wrap items-start justify-between gap-4">
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                 <div>
                   <div className="text-sm uppercase tracking-[0.2em] text-slate-500 mb-2">
                     Selected Scenario
@@ -529,7 +529,7 @@ export function Conversation() {
             <>
               <div className="app-panel overflow-hidden">
                 <div className="border-b border-gray-200 px-6 py-4">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                     <div>
                       <div className="text-sm uppercase tracking-[0.2em] text-slate-500 mb-1">
                         Live Conversation
@@ -591,7 +591,7 @@ export function Conversation() {
                 </div>
 
                 <form onSubmit={handleSubmit} className="border-t border-gray-200 p-4">
-                  <div className="flex gap-3">
+                  <div className="flex flex-col gap-3 sm:flex-row">
                     <textarea
                       value={messageInput}
                       onChange={(event) => setMessageInput(event.target.value)}
@@ -618,7 +618,7 @@ export function Conversation() {
 
               {feedback && (
                 <div className="app-panel p-6">
-                  <div className="flex flex-wrap items-center justify-between gap-4 mb-4">
+                  <div className="mb-4 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                     <div>
                       <h3 className="font-semibold">Conversation Review</h3>
                       <p className="text-sm text-gray-600">
