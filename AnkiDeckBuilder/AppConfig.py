@@ -4,11 +4,13 @@ from pathlib import Path
 AppTitle = "Flash Forge"
 
 AppDir = Path(os.getenv("ANKI_APP_DIR", "./anki_workspace")).expanduser().resolve()
+ProjectRoot = Path(__file__).resolve().parents[1]
 CollectionsDir = AppDir / "collections"
 MediaDir = AppDir / "media"
 TempDir = AppDir / "tmp"
 DatabasePath = AppDir / "app.db"
 ExportDir = AppDir / "exports"
+PublicIconDir = ProjectRoot / "public" / "icons"
 
 DefaultModel = "gpt-4o"
 
@@ -42,6 +44,40 @@ CardSchemas = {
         "FrontFields": ["english"],
         "BackFields": ["kanji", "kana"],
     },
+    "kanji_detail_front_back": {
+        "Label": "Front: Kanji | Back: Meaning + ON/Kun/Nanori + Radical Position",
+        "FrontFields": ["kanji"],
+        "BackFields": [
+            "english",
+            "kanji_on_readings",
+            "kanji_kun_readings",
+            "kanji_nanori_readings",
+            "radical_position",
+        ],
+        "FieldLabels": {
+            "english": "Meaning",
+            "kanji_on_readings": "ON",
+            "kanji_kun_readings": "Kun",
+            "kanji_nanori_readings": "Nanori",
+            "radical_position": "Radical Position",
+        },
+    },
+}
+
+RadicalPositionOptions = {
+    "hen": {"Label": "へん", "Icon": "hen.png"},
+    "tsukuri": {"Label": "つくり", "Icon": "tsukuri.png"},
+    "kanmuri": {"Label": "かんむり", "Icon": "kanmuri.png"},
+    "ashi": {"Label": "あし", "Icon": "ashi.png"},
+    "tare": {"Label": "たれ", "Icon": "tare.png"},
+    "nyou": {"Label": "にょう", "Icon": "nyou.png"},
+    "kunigamae": {"Label": "くにがまえ", "Icon": "kunigamae.png"},
+    "mongamae": {"Label": "もんがまえ", "Icon": "mongamae.png"},
+    "gyougamae": {"Label": "ぎょうがまえ", "Icon": "gyougamae.png"},
+    "hakogamae": {"Label": "はこがまえ", "Icon": "hakogamae.png"},
+    "keigamae": {"Label": "けいがまえ", "Icon": "keigamae.png"},
+    "kigamae": {"Label": "きがまえ", "Icon": "kigamae.png"},
+    "tsutsumigamae": {"Label": "つつみがまえ", "Icon": "tsutsumigamae.png"},
 }
 
 NoteModelId = 1894375291

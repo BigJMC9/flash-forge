@@ -181,6 +181,10 @@ export interface GlobalCardRow {
   dictionary_pos: string;
   dictionary_pos_tags: string[];
   verb_type: string;
+  kanji_on_readings: string;
+  kanji_kun_readings: string;
+  kanji_nanori_readings: string;
+  radical_position: string;
   image_files: string[];
   video_files: string[];
   tags: string[];
@@ -204,6 +208,10 @@ export interface DeckCardRow {
   dictionary_pos: string;
   dictionary_pos_tags: string[];
   verb_type: string;
+  kanji_on_readings: string;
+  kanji_kun_readings: string;
+  kanji_nanori_readings: string;
+  radical_position: string;
   media_type: string;
   media_files: string[];
   tags: string[];

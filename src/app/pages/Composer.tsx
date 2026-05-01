@@ -4,6 +4,11 @@ import { useApp } from '../contexts/AppContext';
 import { callAction, callActionWithFiles, errorMessage } from '../lib/backend';
 import { parseCommaSeparated } from '../lib/text';
 import { ManualFormValue } from '../types';
+import {
+  KANJI_DETAIL_SCHEMA_KEY,
+  RADICAL_POSITION_OPTIONS,
+  getRadicalPositionOption,
+} from '../utils/kanji';
 
 function createDefaultForms(): Record<string, ManualFormValue> {
   return {
@@ -40,9 +45,15 @@ export function Composer() {
   const [english, setEnglish] = useState('');
   const [notes, setNotes] = useState('');
   const [tags, setTags] = useState('manual');
+  const [kanjiOnReadings, setKanjiOnReadings] = useState('');
+  const [kanjiKunReadings, setKanjiKunReadings] = useState('');
+  const [kanjiNanoriReadings, setKanjiNanoriReadings] = useState('');
+  const [radicalPosition, setRadicalPosition] = useState('');
   const [forms, setForms] =
     useState<Record<string, ManualFormValue>>(createDefaultForms);
   const [mediaFiles, setMediaFiles] = useState<File[]>([]);
+  const isKanjiDetailSchema = schemaKey === KANJI_DETAIL_SCHEMA_KEY;
+  const selectedRadicalPosition = getRadicalPositionOption(radicalPosition);
 
   const hasGeneratedForms = useMemo(
     () =>
@@ -58,6 +69,10 @@ export function Composer() {
     setEnglish('');
     setNotes('');
     setTags('manual');
+    setKanjiOnReadings('');
+    setKanjiKunReadings('');
+    setKanjiNanoriReadings('');
+    setRadicalPosition('');
     setForms(createDefaultForms());
     setMediaFiles([]);
   };
@@ -97,10 +112,12 @@ export function Composer() {
   };
 
   const handleSave = async () => {
-    if (!kanji.trim() || !kana.trim() || !english.trim()) {
+    if (!kanji.trim() || !english.trim() || (!isKanjiDetailSchema && !kana.trim())) {
       setStatus({
         type: 'warning',
-        message: 'Kanji, kana, and English are required.',
+        message: isKanjiDetailSchema
+          ? 'Kanji and English are required.'
+          : 'Kanji, kana, and English are required.',
       });
       return;
     }
@@ -124,6 +141,10 @@ export function Composer() {
       english,
       notes,
       tags: parseCommaSeparated(tags),
+      kanji_on_readings: kanjiOnReadings,
+      kanji_kun_readings: kanjiKunReadings,
+      kanji_nanori_readings: kanjiNanoriReadings,
+      radical_position: radicalPosition,
       forms,
     };
 
@@ -264,7 +285,7 @@ export function Composer() {
               type="text"
               value={kana}
               onChange={(event) => setKana(event.target.value)}
-              placeholder="たべる"
+              placeholder={isKanjiDetailSchema ? 'Optional reading hint' : 'たべる'}
               className="app-input"
             />
           </div>
@@ -280,6 +301,84 @@ export function Composer() {
             className="app-input"
           />
         </div>
+
+        {isKanjiDetailSchema && (
+          <div className="mb-6 rounded-xl border border-gray-200 bg-gray-50 p-4">
+            <h3 className="font-semibold mb-4">Kanji Details</h3>
+            <div className="grid md:grid-cols-3 gap-4 mb-4">
+              <div>
+                <label className="block text-sm text-gray-600 mb-2">
+                  ON Reading
+                </label>
+                <input
+                  type="text"
+                  value={kanjiOnReadings}
+                  onChange={(event) => setKanjiOnReadings(event.target.value)}
+                  placeholder="オン, いん"
+                  className="app-input"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm text-gray-600 mb-2">
+                  Kun Reading
+                </label>
+                <input
+                  type="text"
+                  value={kanjiKunReadings}
+                  onChange={(event) => setKanjiKunReadings(event.target.value)}
+                  placeholder="おと, ね"
+                  className="app-input"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm text-gray-600 mb-2">
+                  Nanori
+                </label>
+                <input
+                  type="text"
+                  value={kanjiNanoriReadings}
+                  onChange={(event) => setKanjiNanoriReadings(event.target.value)}
+                  placeholder="Optional name reading"
+                  className="app-input"
+                />
+              </div>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_auto] md:items-end">
+              <div>
+                <label className="block text-sm text-gray-600 mb-2">
+                  Radical Position
+                </label>
+                <select
+                  value={radicalPosition}
+                  onChange={(event) => setRadicalPosition(event.target.value)}
+                  className="app-input"
+                >
+                  {RADICAL_POSITION_OPTIONS.map((option) => (
+                    <option key={option.key || 'none'} value={option.key}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {selectedRadicalPosition?.icon && (
+                <div className="flex items-center gap-3 rounded-lg border border-gray-200 bg-white px-4 py-3">
+                  <img
+                    src={selectedRadicalPosition.icon}
+                    alt={selectedRadicalPosition.label}
+                    className="h-8 w-8 object-contain"
+                  />
+                  <span className="text-sm font-medium text-gray-700">
+                    {selectedRadicalPosition.label}
+                  </span>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
 
         <div className="mb-6">
           <label className="block text-sm text-gray-600 mb-2">Notes</label>

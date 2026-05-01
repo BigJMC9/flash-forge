@@ -1063,6 +1063,10 @@ def BuildCardFromDictionaryEntry(
         "dictionary_pos_tags": entry.get("pos_tags", BuildDictionaryPosTags(entry.get("pos_labels", []))),
         "verb_type": entry.get("verb_type", ""),
         "word_form": appliedWordForm,
+        "kanji_on_readings": "",
+        "kanji_kun_readings": "",
+        "kanji_nanori_readings": "",
+        "radical_position": "",
     }
 
 
@@ -1121,6 +1125,10 @@ def BuildGlobalCardFromDictionaryEntry(
         "dictionary_pos": ", ".join(entry.get("pos_labels", [])),
         "dictionary_pos_tags": entry.get("pos_tags", BuildDictionaryPosTags(entry.get("pos_labels", []))),
         "verb_type": entry.get("verb_type", ""),
+        "kanji_on_readings": "",
+        "kanji_kun_readings": "",
+        "kanji_nanori_readings": "",
+        "radical_position": "",
     }
 
 

@@ -27,6 +27,7 @@ COPY python_sidecar/requirements.txt /app/python_sidecar/requirements.txt
 RUN pip3 install --no-cache-dir -r /app/python_sidecar/requirements.txt
 
 COPY --from=builder /app/dist /app/dist
+COPY --from=builder /app/public /app/public
 COPY --from=builder /app/server /app/server
 COPY --from=builder /app/AnkiDeckBuilder /app/AnkiDeckBuilder
 COPY --from=builder /app/python_sidecar /app/python_sidecar

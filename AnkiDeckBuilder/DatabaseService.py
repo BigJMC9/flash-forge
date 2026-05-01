@@ -15,7 +15,18 @@ from AnkiDeckBuilder.AppConfig import (
 )
 from AnkiDeckBuilder.WorkspaceService import EnsureWorkspaceDirectories
 
-AllowedCardFieldsToUpdate = {"kanji", "kana", "english", "notes", "schema_key", "media_type"}
+AllowedCardFieldsToUpdate = {
+    "kanji",
+    "kana",
+    "english",
+    "notes",
+    "schema_key",
+    "media_type",
+    "kanji_on_readings",
+    "kanji_kun_readings",
+    "kanji_nanori_readings",
+    "radical_position",
+}
 CollectionColumnDefinitions = {
     "owner_user_id": "TEXT NOT NULL DEFAULT ''",
     "display_name": "TEXT NOT NULL DEFAULT ''",
@@ -33,6 +44,10 @@ CardColumnDefinitions = {
     "dictionary_pos_tags": "TEXT NOT NULL DEFAULT '[]'",
     "verb_type": "TEXT NOT NULL DEFAULT ''",
     "word_form": "TEXT NOT NULL DEFAULT 'dictionary'",
+    "kanji_on_readings": "TEXT NOT NULL DEFAULT ''",
+    "kanji_kun_readings": "TEXT NOT NULL DEFAULT ''",
+    "kanji_nanori_readings": "TEXT NOT NULL DEFAULT ''",
+    "radical_position": "TEXT NOT NULL DEFAULT ''",
 }
 GlobalCardColumnDefinitions = {
     "owner_user_id": "TEXT NOT NULL DEFAULT ''",
@@ -58,6 +73,10 @@ GlobalCardColumnDefinitions = {
     "dictionary_pos": "TEXT NOT NULL DEFAULT ''",
     "dictionary_pos_tags": "TEXT NOT NULL DEFAULT '[]'",
     "verb_type": "TEXT NOT NULL DEFAULT ''",
+    "kanji_on_readings": "TEXT NOT NULL DEFAULT ''",
+    "kanji_kun_readings": "TEXT NOT NULL DEFAULT ''",
+    "kanji_nanori_readings": "TEXT NOT NULL DEFAULT ''",
+    "radical_position": "TEXT NOT NULL DEFAULT ''",
     "unique_key": "TEXT NOT NULL DEFAULT ''",
     "created_at": "REAL NOT NULL DEFAULT 0",
 }
@@ -269,6 +288,10 @@ def EnsureDatabaseSchema(connection: sqlite3.Connection) -> None:
             dictionary_pos_tags TEXT NOT NULL DEFAULT '[]',
             verb_type TEXT NOT NULL DEFAULT '',
             word_form TEXT NOT NULL DEFAULT 'dictionary',
+            kanji_on_readings TEXT NOT NULL DEFAULT '',
+            kanji_kun_readings TEXT NOT NULL DEFAULT '',
+            kanji_nanori_readings TEXT NOT NULL DEFAULT '',
+            radical_position TEXT NOT NULL DEFAULT '',
             unique_key TEXT NOT NULL,
             created_at REAL NOT NULL,
             UNIQUE(deck_id, unique_key),
@@ -303,6 +326,10 @@ def EnsureDatabaseSchema(connection: sqlite3.Connection) -> None:
             dictionary_pos TEXT NOT NULL DEFAULT '',
             dictionary_pos_tags TEXT NOT NULL DEFAULT '[]',
             verb_type TEXT NOT NULL DEFAULT '',
+            kanji_on_readings TEXT NOT NULL DEFAULT '',
+            kanji_kun_readings TEXT NOT NULL DEFAULT '',
+            kanji_nanori_readings TEXT NOT NULL DEFAULT '',
+            radical_position TEXT NOT NULL DEFAULT '',
             unique_key TEXT NOT NULL,
             created_at REAL NOT NULL,
             UNIQUE(unique_key)
@@ -1075,6 +1102,10 @@ def AddCard(connection: sqlite3.Connection, deckId: str, card: Dict[str, Any]) -
     dictionaryPosTags = NormalizeDictionaryPosTags(card.get("dictionary_pos_tags") or [])
     verbType = (card.get("verb_type") or "").strip()
     wordForm = (card.get("word_form") or "dictionary").strip() or "dictionary"
+    kanjiOnReadings = (card.get("kanji_on_readings") or "").strip()
+    kanjiKunReadings = (card.get("kanji_kun_readings") or "").strip()
+    kanjiNanoriReadings = (card.get("kanji_nanori_readings") or "").strip()
+    radicalPosition = (card.get("radical_position") or "").strip()
 
     if CardWordExistsInSchema(connection, deckId, schemaKey, kanji, kana):
         return False
@@ -1088,8 +1119,9 @@ def AddCard(connection: sqlite3.Connection, deckId: str, card: Dict[str, Any]) -
                 media_type, media_files_json, tags_json,
                 dictionary_entry_id, dictionary_headword, dictionary_reading,
                 dictionary_gloss, dictionary_pos, dictionary_pos_tags, verb_type, word_form,
+                kanji_on_readings, kanji_kun_readings, kanji_nanori_readings, radical_position,
                 unique_key, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 str(uuid.uuid4()),
@@ -1111,6 +1143,10 @@ def AddCard(connection: sqlite3.Connection, deckId: str, card: Dict[str, Any]) -
                 json.dumps(dictionaryPosTags, ensure_ascii=False),
                 verbType,
                 wordForm,
+                kanjiOnReadings,
+                kanjiKunReadings,
+                kanjiNanoriReadings,
+                radicalPosition,
                 uniqueKey,
                 time.time(),
             ),
@@ -1147,7 +1183,7 @@ def AddGlobalCard(connection: sqlite3.Connection, card: Dict[str, Any]) -> bool:
     kanji = (card.get("kanji") or "").strip()
     kana = (card.get("kana") or "").strip()
     english = (card.get("english") or "").strip()
-    if not kanji or not kana or not english:
+    if not kanji or not english:
         return False
 
     if GlobalCardExists(connection, ownerUserId, kanji, kana):
@@ -1169,6 +1205,10 @@ def AddGlobalCard(connection: sqlite3.Connection, card: Dict[str, Any]) -> bool:
     dictionaryPos = (card.get("dictionary_pos") or "").strip()
     dictionaryPosTags = NormalizeDictionaryPosTags(card.get("dictionary_pos_tags") or [])
     verbType = (card.get("verb_type") or "").strip()
+    kanjiOnReadings = (card.get("kanji_on_readings") or "").strip()
+    kanjiKunReadings = (card.get("kanji_kun_readings") or "").strip()
+    kanjiNanoriReadings = (card.get("kanji_nanori_readings") or "").strip()
+    radicalPosition = (card.get("radical_position") or "").strip()
 
     imageFiles = NormalizeStringList(card.get("image_files") or [])
     videoFiles = NormalizeStringList(card.get("video_files") or [])
@@ -1185,8 +1225,9 @@ def AddGlobalCard(connection: sqlite3.Connection, card: Dict[str, Any]) -> bool:
                 image_files_json, video_files_json, tags_json,
                 dictionary_entry_id, dictionary_headword, dictionary_reading,
                 dictionary_gloss, dictionary_pos, dictionary_pos_tags, verb_type,
+                kanji_on_readings, kanji_kun_readings, kanji_nanori_readings, radical_position,
                 unique_key, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 str(uuid.uuid4()),
@@ -1213,6 +1254,10 @@ def AddGlobalCard(connection: sqlite3.Connection, card: Dict[str, Any]) -> bool:
                 dictionaryPos,
                 json.dumps(dictionaryPosTags, ensure_ascii=False),
                 verbType,
+                kanjiOnReadings,
+                kanjiKunReadings,
+                kanjiNanoriReadings,
+                radicalPosition,
                 uniqueKey,
                 time.time(),
             ),
@@ -1297,6 +1342,22 @@ def MergeGlobalCard(connection: sqlite3.Connection, existingCard: sqlite3.Row, i
             incomingCard.get("dictionary_pos", ""),
         ),
         "verb_type": MergeOptionalText(existingCard["verb_type"], incomingCard.get("verb_type", "")),
+        "kanji_on_readings": MergeOptionalText(
+            existingCard["kanji_on_readings"],
+            incomingCard.get("kanji_on_readings", ""),
+        ),
+        "kanji_kun_readings": MergeOptionalText(
+            existingCard["kanji_kun_readings"],
+            incomingCard.get("kanji_kun_readings", ""),
+        ),
+        "kanji_nanori_readings": MergeOptionalText(
+            existingCard["kanji_nanori_readings"],
+            incomingCard.get("kanji_nanori_readings", ""),
+        ),
+        "radical_position": MergeOptionalText(
+            existingCard["radical_position"],
+            incomingCard.get("radical_position", ""),
+        ),
     }
     mergedDictionaryPosTags = NormalizeDictionaryPosTags(
         DecodeJsonStringList(existingCard["dictionary_pos_tags"])
@@ -1354,7 +1415,11 @@ def MergeGlobalCard(connection: sqlite3.Connection, existingCard: sqlite3.Row, i
             dictionary_gloss = ?,
             dictionary_pos = ?,
             dictionary_pos_tags = ?,
-            verb_type = ?
+            verb_type = ?,
+            kanji_on_readings = ?,
+            kanji_kun_readings = ?,
+            kanji_nanori_readings = ?,
+            radical_position = ?
         WHERE id = ?
         """,
         (
@@ -1380,6 +1445,10 @@ def MergeGlobalCard(connection: sqlite3.Connection, existingCard: sqlite3.Row, i
             mergedValues["dictionary_pos"],
             json.dumps(mergedDictionaryPosTags, ensure_ascii=False),
             mergedValues["verb_type"],
+            mergedValues["kanji_on_readings"],
+            mergedValues["kanji_kun_readings"],
+            mergedValues["kanji_nanori_readings"],
+            mergedValues["radical_position"],
             existingCard["id"],
         ),
     )
@@ -1453,6 +1522,10 @@ def BuildDeckCardPayloadFromGlobalCard(
         "dictionary_pos_tags": DecodeJsonStringList(globalCard["dictionary_pos_tags"]),
         "verb_type": (globalCard["verb_type"] or "").strip(),
         "word_form": appliedWordForm,
+        "kanji_on_readings": (globalCard["kanji_on_readings"] or "").strip(),
+        "kanji_kun_readings": (globalCard["kanji_kun_readings"] or "").strip(),
+        "kanji_nanori_readings": (globalCard["kanji_nanori_readings"] or "").strip(),
+        "radical_position": (globalCard["radical_position"] or "").strip(),
     }
 
 
@@ -1464,7 +1537,7 @@ def ImportDeckCardsToGlobal(connection: sqlite3.Connection, deckId: str, ownerUs
         sourceWordForm = (card["word_form"] or "dictionary").strip() or "dictionary"
         baseKanji = (card["dictionary_headword"] or "").strip() or (card["kanji"] or "").strip()
         baseKana = (card["dictionary_reading"] or "").strip() or (card["kana"] or "").strip()
-        if not baseKanji or not baseKana:
+        if not baseKanji or (not baseKana and (card["schema_key"] or "").strip() != "kanji_detail_front_back"):
             skipped += 1
             continue
 
@@ -1510,6 +1583,10 @@ def ImportDeckCardsToGlobal(connection: sqlite3.Connection, deckId: str, ownerUs
             "dictionary_pos": (card["dictionary_pos"] or "").strip(),
             "dictionary_pos_tags": DecodeJsonStringList(card["dictionary_pos_tags"]),
             "verb_type": (card["verb_type"] or "").strip(),
+            "kanji_on_readings": (card["kanji_on_readings"] or "").strip(),
+            "kanji_kun_readings": (card["kanji_kun_readings"] or "").strip(),
+            "kanji_nanori_readings": (card["kanji_nanori_readings"] or "").strip(),
+            "radical_position": (card["radical_position"] or "").strip(),
         }
 
         if sourceWordForm in WordFormFieldByKey and sourceWordForm != "dictionary":
@@ -1550,7 +1627,10 @@ def ImportGlobalCardsToDeck(
             requestedWordForm,
             extraTags=extraTags or [],
         )
-        if not (deckCard.get("kanji") or "").strip() or not (deckCard.get("kana") or "").strip():
+        requiresKana = (schemaKey or "").strip() != "kanji_detail_front_back"
+        if not (deckCard.get("kanji") or "").strip() or (
+            requiresKana and not (deckCard.get("kana") or "").strip()
+        ):
             skipped += 1
             continue
 
@@ -1570,12 +1650,20 @@ def UpdateCardContent(
     english: str,
     notes: str,
     schemaKey: str,
+    kanjiOnReadings: str = "",
+    kanjiKunReadings: str = "",
+    kanjiNanoriReadings: str = "",
+    radicalPosition: str = "",
 ) -> bool:
     normalizedKanji = (kanji or "").strip()
     normalizedKana = (kana or "").strip()
     normalizedEnglish = (english or "").strip()
     normalizedNotes = (notes or "").strip()
     normalizedSchemaKey = (schemaKey or "").strip() or "kana_kanji_front_english_back"
+    normalizedKanjiOnReadings = (kanjiOnReadings or "").strip()
+    normalizedKanjiKunReadings = (kanjiKunReadings or "").strip()
+    normalizedKanjiNanoriReadings = (kanjiNanoriReadings or "").strip()
+    normalizedRadicalPosition = (radicalPosition or "").strip()
 
     if CardWordExistsInSchema(
         connection,
@@ -1592,7 +1680,16 @@ def UpdateCardContent(
         cursor = connection.execute(
             """
             UPDATE cards
-            SET kanji = ?, kana = ?, english = ?, notes = ?, schema_key = ?, unique_key = ?
+            SET kanji = ?,
+                kana = ?,
+                english = ?,
+                notes = ?,
+                schema_key = ?,
+                kanji_on_readings = ?,
+                kanji_kun_readings = ?,
+                kanji_nanori_readings = ?,
+                radical_position = ?,
+                unique_key = ?
             WHERE id = ? AND deck_id = ?
             """,
             (
@@ -1601,6 +1698,10 @@ def UpdateCardContent(
                 normalizedEnglish,
                 normalizedNotes,
                 normalizedSchemaKey,
+                normalizedKanjiOnReadings,
+                normalizedKanjiKunReadings,
+                normalizedKanjiNanoriReadings,
+                normalizedRadicalPosition,
                 uniqueKey,
                 cardId,
                 deckId,
@@ -2314,6 +2415,10 @@ def CloneTemplateDataToUser(connection: sqlite3.Connection, userId: str) -> None
                 "dictionary_pos_tags": DecodeJsonStringList(cardRow["dictionary_pos_tags"]),
                 "verb_type": cardRow["verb_type"],
                 "word_form": cardRow["word_form"],
+                "kanji_on_readings": cardRow["kanji_on_readings"],
+                "kanji_kun_readings": cardRow["kanji_kun_readings"],
+                "kanji_nanori_readings": cardRow["kanji_nanori_readings"],
+                "radical_position": cardRow["radical_position"],
             },
         )
 

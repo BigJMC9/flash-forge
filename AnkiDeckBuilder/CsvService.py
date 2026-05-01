@@ -47,6 +47,10 @@ def ImportCsvCards(connection: sqlite3.Connection, deckId: str, file) -> Tuple[i
                 "dictionary_pos_tags": ParseDictionaryPosTags(row.get("dictionary_pos_tags", "")),
                 "verb_type": row.get("verb_type", ""),
                 "word_form": row.get("word_form", "dictionary"),
+                "kanji_on_readings": row.get("kanji_on_readings", ""),
+                "kanji_kun_readings": row.get("kanji_kun_readings", ""),
+                "kanji_nanori_readings": row.get("kanji_nanori_readings", ""),
+                "radical_position": row.get("radical_position", ""),
             },
         )
         added += int(isAdded)

@@ -30,6 +30,7 @@ from AnkiDeckBuilder.AppConfig import (
     CardSchemas,
     DefaultModel,
     MediaDir,
+    RadicalPositionOptions,
     SupportedAudioExtensions,
     SupportedImageExtensions,
     SupportedVideoExtensions,
@@ -539,8 +540,11 @@ def build_card_face_text(card: Any, field_names: List[str]) -> str:
     values: List[str] = []
     for field_name in field_names:
         text = get_card_text(card, field_name)
+        if field_name == "radical_position" and text in RadicalPositionOptions:
+            text = RadicalPositionOptions[text]["Label"]
         if text and text not in values:
-            values.append(text)
+            label = CardSchemas.get(get_card_text(card, "schema_key"), {}).get("FieldLabels", {}).get(field_name, "")
+            values.append(f"{label}: {text}" if label else text)
     return " | ".join(values)
 
 
@@ -827,7 +831,14 @@ def build_deck_card_search_terms(card: sqlite3.Row) -> List[str]:
         card["dictionary_gloss"] or "",
         card["dictionary_pos"] or "",
         card["word_form"] or "",
+        get_card_text(card, "kanji_on_readings"),
+        get_card_text(card, "kanji_kun_readings"),
+        get_card_text(card, "kanji_nanori_readings"),
+        get_card_text(card, "radical_position"),
     ]
+    radical_position = get_card_text(card, "radical_position")
+    if radical_position in RadicalPositionOptions:
+        terms.append(RadicalPositionOptions[radical_position]["Label"])
 
     verb_type = normalize_text(card["verb_type"])
     base_word = normalize_text(card["dictionary_headword"]) or normalize_text(card["kanji"])
@@ -863,7 +874,14 @@ def build_global_card_search_terms(card: sqlite3.Row) -> List[str]:
         card["dictionary_reading"] or "",
         card["dictionary_gloss"] or "",
         card["dictionary_pos"] or "",
+        get_card_text(card, "kanji_on_readings"),
+        get_card_text(card, "kanji_kun_readings"),
+        get_card_text(card, "kanji_nanori_readings"),
+        get_card_text(card, "radical_position"),
     ]
+    radical_position = get_card_text(card, "radical_position")
+    if radical_position in RadicalPositionOptions:
+        terms.append(RadicalPositionOptions[radical_position]["Label"])
     terms.extend(DecodeJsonStringList(card["tags_json"]))
 
     verb_type = normalize_text(card["verb_type"])
@@ -1006,6 +1024,10 @@ def serialize_global_card(row: sqlite3.Row) -> Dict[str, Any]:
         "dictionary_pos": normalize_text(row["dictionary_pos"]),
         "dictionary_pos_tags": DecodeJsonStringList(row["dictionary_pos_tags"]),
         "verb_type": normalize_text(row["verb_type"]),
+        "kanji_on_readings": normalize_text(row["kanji_on_readings"]),
+        "kanji_kun_readings": normalize_text(row["kanji_kun_readings"]),
+        "kanji_nanori_readings": normalize_text(row["kanji_nanori_readings"]),
+        "radical_position": normalize_text(row["radical_position"]),
         "image_files": image_files,
         "video_files": video_files,
         "tags": tags,
@@ -1033,6 +1055,10 @@ def serialize_deck_card(card: sqlite3.Row, index: int) -> Dict[str, Any]:
         "dictionary_pos": normalize_text(card["dictionary_pos"]),
         "dictionary_pos_tags": DecodeJsonStringList(card["dictionary_pos_tags"]),
         "verb_type": normalize_text(card["verb_type"]),
+        "kanji_on_readings": normalize_text(card["kanji_on_readings"]),
+        "kanji_kun_readings": normalize_text(card["kanji_kun_readings"]),
+        "kanji_nanori_readings": normalize_text(card["kanji_nanori_readings"]),
+        "radical_position": normalize_text(card["radical_position"]),
         "media_type": normalize_text(card["media_type"]) or "none",
         "media_files": DecodeJsonStringList(card["media_files_json"]),
         "tags": DecodeJsonStringList(card["tags_json"]),
@@ -1496,9 +1522,16 @@ def action_add_manual_card(payload: Dict[str, Any]) -> Dict[str, Any]:
     notes = normalize_text(payload.get("notes", ""))
     tags = parse_tags(payload.get("tags", []))
     media_paths = normalize_string_list(payload.get("media_paths", []))
+    kanji_on_readings = normalize_text(payload.get("kanji_on_readings", ""))
+    kanji_kun_readings = normalize_text(payload.get("kanji_kun_readings", ""))
+    kanji_nanori_readings = normalize_text(payload.get("kanji_nanori_readings", ""))
+    radical_position = normalize_text(payload.get("radical_position", ""))
+    is_kanji_detail_schema = schema_key == "kanji_detail_front_back"
 
-    if not kanji or not kana or not english:
-        raise RuntimeError("kanji, kana, and english are required.")
+    if not kanji or not english or (not is_kanji_detail_schema and not kana):
+        raise RuntimeError(
+            "kanji and english are required. Kana is also required unless the Kanji detail format is selected."
+        )
     if destination == "deck" and not deck_id:
         raise RuntimeError("deck_id is required when destination is deck.")
     if destination == "deck":
@@ -1569,6 +1602,10 @@ def action_add_manual_card(payload: Dict[str, Any]) -> Dict[str, Any]:
             "dictionary_pos": dictionary_pos,
             "dictionary_pos_tags": dictionary_pos_tags,
             "verb_type": verb_type,
+            "kanji_on_readings": kanji_on_readings,
+            "kanji_kun_readings": kanji_kun_readings,
+            "kanji_nanori_readings": kanji_nanori_readings,
+            "radical_position": radical_position,
         }
         is_added = AddGlobalCard(connection, global_payload)
         return {"destination": "global", "added": bool(is_added), "saved_media_paths": saved_media_paths}
@@ -1599,6 +1636,10 @@ def action_add_manual_card(payload: Dict[str, Any]) -> Dict[str, Any]:
         "dictionary_pos_tags": dictionary_pos_tags,
         "verb_type": verb_type,
         "word_form": selected_word_form,
+        "kanji_on_readings": kanji_on_readings,
+        "kanji_kun_readings": kanji_kun_readings,
+        "kanji_nanori_readings": kanji_nanori_readings,
+        "radical_position": radical_position,
     }
     is_added = AddCard(connection, deck_id, deck_payload)
     return {
@@ -1723,6 +1764,10 @@ def action_update_card(payload: Dict[str, Any]) -> Dict[str, Any]:
         normalize_text(payload.get("english", "")),
         normalize_text(payload.get("notes", "")),
         normalize_text(payload.get("schema_key", "")) or "kana_kanji_front_english_back",
+        normalize_text(payload.get("kanji_on_readings", "")),
+        normalize_text(payload.get("kanji_kun_readings", "")),
+        normalize_text(payload.get("kanji_nanori_readings", "")),
+        normalize_text(payload.get("radical_position", "")),
     )
     return {"updated": bool(updated)}
 

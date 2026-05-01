@@ -11,6 +11,8 @@ from AnkiDeckBuilder.AppConfig import (
     CardSchemas,
     ExportDir,
     NoteModelId,
+    PublicIconDir,
+    RadicalPositionOptions,
     SupportedAudioExtensions,
     SupportedImageExtensions,
     SupportedVideoExtensions,
@@ -18,11 +20,65 @@ from AnkiDeckBuilder.AppConfig import (
 from AnkiDeckBuilder.DatabaseService import GetDeckCards, GetDeckRow
 
 
-def RenderField(fieldName: str, card: sqlite3.Row) -> str:
+def ResolveRadicalPosition(value: str) -> Tuple[str, str]:
+    normalizedValue = (value or "").strip()
+    if not normalizedValue:
+        return "", ""
+
+    if normalizedValue in RadicalPositionOptions:
+        option = RadicalPositionOptions[normalizedValue]
+        return option["Label"], option["Icon"]
+
+    for option in RadicalPositionOptions.values():
+        if normalizedValue == option["Label"]:
+            return option["Label"], option["Icon"]
+
+    return normalizedValue, ""
+
+
+def RenderRadicalPosition(value: str, label: str) -> str:
+    positionLabel, iconName = ResolveRadicalPosition(value)
+    if not positionLabel:
+        return ""
+
+    escapedLabel = html.escape(label)
+    escapedPosition = html.escape(positionLabel)
+    if iconName:
+        iconHtml = (
+            f'<img class="radical-position-icon" src="{html.escape(iconName)}" '
+            f'alt="{escapedPosition}">'
+        )
+        valueHtml = f'<span class="radical-position-value">{iconHtml}<span>{escapedPosition}</span></span>'
+    else:
+        valueHtml = f'<span>{escapedPosition}</span>'
+
+    return (
+        '<div class="kanji-detail-row">'
+        f'<span class="kanji-detail-label">{escapedLabel}</span>'
+        f'<span class="kanji-detail-value">{valueHtml}</span>'
+        '</div>'
+    )
+
+
+def RenderField(fieldName: str, card: sqlite3.Row, fieldLabels: dict[str, str] | None = None) -> str:
     value = (card[fieldName] or "").strip()
     if not value:
         return ""
-    return html.escape(value)
+
+    label = (fieldLabels or {}).get(fieldName, "")
+    if fieldName == "radical_position":
+        return RenderRadicalPosition(value, label or "Radical Position")
+
+    escapedValue = html.escape(value)
+    if not label:
+        return escapedValue
+
+    return (
+        '<div class="kanji-detail-row">'
+        f'<span class="kanji-detail-label">{html.escape(label)}</span>'
+        f'<span class="kanji-detail-value">{escapedValue}</span>'
+        '</div>'
+    )
 
 
 def RenderMedia(card: sqlite3.Row) -> str:
@@ -65,9 +121,18 @@ def RenderDictionaryReference(card: sqlite3.Row) -> str:
 
 def BuildNoteFields(card: sqlite3.Row) -> Tuple[str, str, str]:
     schema = CardSchemas[card["schema_key"]]
+    fieldLabels = schema.get("FieldLabels", {})
 
-    frontParts = [RenderField(field, card) for field in schema["FrontFields"] if RenderField(field, card)]
-    backParts = [RenderField(field, card) for field in schema["BackFields"] if RenderField(field, card)]
+    frontParts = [
+        rendered
+        for field in schema["FrontFields"]
+        if (rendered := RenderField(field, card, fieldLabels))
+    ]
+    backParts = [
+        rendered
+        for field in schema["BackFields"]
+        if (rendered := RenderField(field, card, fieldLabels))
+    ]
 
     mediaHtml = RenderMedia(card)
     dictionaryReferenceHtml = RenderDictionaryReference(card)
@@ -85,6 +150,14 @@ def BuildNoteFields(card: sqlite3.Row) -> Tuple[str, str, str]:
 
     sortField = RenderField("kanji", card) or RenderField("kana", card) or RenderField("english", card)
     return frontHtml, backHtml, sortField
+
+
+def GetRadicalPositionIconPath(card: sqlite3.Row) -> str:
+    _, iconName = ResolveRadicalPosition(card["radical_position"] or "")
+    if not iconName:
+        return ""
+    iconPath = PublicIconDir / iconName
+    return str(iconPath) if iconPath.exists() else ""
 
 
 def CreateAnkiModel() -> genanki.Model:
@@ -113,6 +186,34 @@ def CreateAnkiModel() -> genanki.Model:
         }
         img { max-width: 95%; height: auto; }
         video { max-width: 95%; }
+        .kanji-detail-row {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 0.65rem;
+          margin: 0.35rem 0;
+          font-size: 22px;
+        }
+        .kanji-detail-label {
+          min-width: 8rem;
+          text-align: right;
+          color: #555;
+          font-weight: 700;
+        }
+        .kanji-detail-value {
+          text-align: left;
+        }
+        .radical-position-value {
+          display: inline-flex;
+          align-items: center;
+          gap: 0.45rem;
+        }
+        .radical-position-icon {
+          width: 2rem;
+          height: 2rem;
+          object-fit: contain;
+          vertical-align: middle;
+        }
         """,
     )
 
@@ -137,6 +238,9 @@ def ExportDeckPackage(connection: sqlite3.Connection, deckId: str) -> Path:
         note = genanki.Note(model=model, fields=[frontHtml, backHtml, sortField])
         deck.add_note(note)
         mediaFiles.extend(json.loads(card["media_files_json"]))
+        radicalIconPath = GetRadicalPositionIconPath(card)
+        if radicalIconPath:
+            mediaFiles.append(radicalIconPath)
 
     exportPath = ExportDir / f"{deckRow['collection_name']}__{deckRow['deck_name']}.apkg"
     package = genanki.Package(deck)

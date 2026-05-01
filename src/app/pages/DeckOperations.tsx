@@ -18,6 +18,11 @@ import { useApp } from '../contexts/AppContext';
 import { copyTextToClipboard } from '../lib/clipboard';
 import { callAction, callActionWithFiles, errorMessage } from '../lib/backend';
 import { DeckCardRow, DeckCollaboratorRow, DeckInviteRow } from '../types';
+import {
+  KANJI_DETAIL_SCHEMA_KEY,
+  RADICAL_POSITION_OPTIONS,
+  getRadicalPositionOption,
+} from '../utils/kanji';
 
 type EditForm = {
   kanji: string;
@@ -25,6 +30,10 @@ type EditForm = {
   english: string;
   notes: string;
   schema_key: string;
+  kanji_on_readings: string;
+  kanji_kun_readings: string;
+  kanji_nanori_readings: string;
+  radical_position: string;
 };
 
 export function DeckOperations() {
@@ -49,6 +58,10 @@ export function DeckOperations() {
     english: '',
     notes: '',
     schema_key: defaultSchemaKey,
+    kanji_on_readings: '',
+    kanji_kun_readings: '',
+    kanji_nanori_readings: '',
+    radical_position: '',
   });
   const [replaceTarget, setReplaceTarget] = useState('english');
   const [replaceMediaType, setReplaceMediaType] = useState('image');
@@ -78,6 +91,8 @@ export function DeckOperations() {
     const ids = Array.from(selectedIds);
     return ids.length === 1 ? ids[0] : '';
   }, [editingCardId, selectedIds]);
+  const isEditingKanjiDetail = editForm.schema_key === KANJI_DETAIL_SCHEMA_KEY;
+  const selectedRadicalPosition = getRadicalPositionOption(editForm.radical_position);
 
   const loadRows = useCallback(async (search = searchText) => {
     const requestId = rowsRequestIdRef.current + 1;
@@ -258,6 +273,10 @@ export function DeckOperations() {
       english: card.english,
       notes: card.notes,
       schema_key: card.schema_key,
+      kanji_on_readings: card.kanji_on_readings,
+      kanji_kun_readings: card.kanji_kun_readings,
+      kanji_nanori_readings: card.kanji_nanori_readings,
+      radical_position: card.radical_position,
     });
   };
 
@@ -711,6 +730,82 @@ export function DeckOperations() {
               ))}
             </select>
           </div>
+
+          {isEditingKanjiDetail && (
+            <div className="mb-4 rounded-xl border border-gray-200 bg-gray-50 p-4">
+              <h4 className="font-semibold mb-4">Kanji Details</h4>
+              <div className="grid gap-4 md:grid-cols-3 mb-4">
+                <input
+                  type="text"
+                  value={editForm.kanji_on_readings}
+                  onChange={(event) =>
+                    setEditForm((previous) => ({
+                      ...previous,
+                      kanji_on_readings: event.target.value,
+                    }))
+                  }
+                  placeholder="ON reading"
+                  className="app-input"
+                />
+                <input
+                  type="text"
+                  value={editForm.kanji_kun_readings}
+                  onChange={(event) =>
+                    setEditForm((previous) => ({
+                      ...previous,
+                      kanji_kun_readings: event.target.value,
+                    }))
+                  }
+                  placeholder="Kun reading"
+                  className="app-input"
+                />
+                <input
+                  type="text"
+                  value={editForm.kanji_nanori_readings}
+                  onChange={(event) =>
+                    setEditForm((previous) => ({
+                      ...previous,
+                      kanji_nanori_readings: event.target.value,
+                    }))
+                  }
+                  placeholder="Nanori"
+                  className="app-input"
+                />
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_auto] md:items-end">
+                <select
+                  value={editForm.radical_position}
+                  onChange={(event) =>
+                    setEditForm((previous) => ({
+                      ...previous,
+                      radical_position: event.target.value,
+                    }))
+                  }
+                  className="app-input"
+                >
+                  {RADICAL_POSITION_OPTIONS.map((option) => (
+                    <option key={option.key || 'none'} value={option.key}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+
+                {selectedRadicalPosition?.icon && (
+                  <div className="flex items-center gap-3 rounded-lg border border-gray-200 bg-white px-4 py-3">
+                    <img
+                      src={selectedRadicalPosition.icon}
+                      alt={selectedRadicalPosition.label}
+                      className="h-8 w-8 object-contain"
+                    />
+                    <span className="text-sm font-medium text-gray-700">
+                      {selectedRadicalPosition.label}
+                    </span>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
 
           <div className="flex flex-col gap-3 sm:flex-row">
             <button
