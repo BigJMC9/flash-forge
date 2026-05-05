@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
+import { existsSync } from 'node:fs';
 import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -13,7 +14,26 @@ const sidecarScriptDefault = path.resolve(
   'main.py',
 );
 const workspaceDirDefault = path.resolve(repoRootDefault, 'anki_workspace');
-const pythonCommandDefault = process.env.PYTHON ?? 'python';
+const venvPythonDefault = path.resolve(
+  repoRootDefault,
+  '.venv',
+  process.platform === 'win32' ? 'Scripts/python.exe' : 'bin/python',
+);
+
+function resolvePythonCommandDefault() {
+  const configuredPython = String(process.env.PYTHON ?? '').trim();
+  if (configuredPython) {
+    return configuredPython;
+  }
+
+  if (existsSync(venvPythonDefault)) {
+    return venvPythonDefault;
+  }
+
+  return process.platform === 'win32' ? 'python' : 'python3';
+}
+
+const pythonCommandDefault = resolvePythonCommandDefault();
 
 export const SESSION_COOKIE_NAME = 'flash_forge_session';
 const SESSION_COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24 * 30;

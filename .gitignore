@@ -1,4 +1,8 @@
 node_modules/**
+.venv/
+.env
+.env.*
+!.env.example
 **.toc
 **.pyz
 **.zip
@@ -8,4 +12,3 @@ node_modules/**
 **.pyc
 **.exe
 **.log
-**.env

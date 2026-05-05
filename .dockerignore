@@ -1,6 +1,7 @@
 .git
 .gitignore
 node_modules
+.venv
 dist
 anki_workspace
 __pycache__

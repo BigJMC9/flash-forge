@@ -18,13 +18,18 @@ ENV PORT=3000
 ENV HOST=0.0.0.0
 ENV PYTHONUNBUFFERED=1
 ENV ANKI_APP_DIR=/app/anki_workspace
+ENV VIRTUAL_ENV=/opt/venv
+ENV PYTHON=/opt/venv/bin/python
+ENV PATH="/opt/venv/bin:$PATH"
 
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends python3 python3-pip \
+  && apt-get install -y --no-install-recommends python3 python3-venv \
+  && python3 -m venv "$VIRTUAL_ENV" \
+  && "$PYTHON" -m pip install --upgrade pip \
   && rm -rf /var/lib/apt/lists/*
 
 COPY python_sidecar/requirements.txt /app/python_sidecar/requirements.txt
-RUN pip3 install --no-cache-dir -r /app/python_sidecar/requirements.txt
+RUN "$PYTHON" -m pip install --no-cache-dir -r /app/python_sidecar/requirements.txt
 
 COPY --from=builder /app/dist /app/dist
 COPY --from=builder /app/public /app/public
