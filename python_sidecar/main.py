@@ -3057,7 +3057,7 @@ def print_envelope(ok: bool, data: Any = None, error: str = "", include_trace: b
         payload["error"] = {"message": error}
         if include_trace:
             payload["error"]["traceback"] = traceback.format_exc()
-    print(json.dumps(payload, ensure_ascii=False))
+    print(json.dumps(payload, ensure_ascii=True))
 
 
 def run_action(action: str, payload: Dict[str, Any]) -> Any:

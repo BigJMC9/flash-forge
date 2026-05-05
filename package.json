@@ -6,6 +6,7 @@
   "scripts": {
     "build": "vite build",
     "dev": "vite --host",
+    "local-dev": "vite",
     "preview": "vite preview",
     "setup:unix": "bash ./setup.sh",
     "setup:windows": "setup.cmd",
