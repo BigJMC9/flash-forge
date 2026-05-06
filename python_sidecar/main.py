@@ -122,10 +122,12 @@ from AnkiDeckBuilder.JamdictService import (
     VerbTypeLabels,
 )
 from AnkiDeckBuilder.OpenAiService import (
+    CoerceJsonObjectList,
     ExtractCardsFromImages,
     GenerateConversationFeedback,
     GenerateConversationOpening,
     GenerateConversationReply,
+    GenerateDeckCardChanges,
     GenerateReadingMaterial,
     GenerateReadingQuestionsFromPassage,
     GenerateReadingComprehensionPackage,
@@ -1712,6 +1714,421 @@ def action_add_manual_card(payload: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def serialize_deck_card_for_ai(card: sqlite3.Row) -> Dict[str, Any]:
+    schema_key = normalize_text(card["schema_key"]) or DefaultSchemaKey
+    schema = get_schema_definition(schema_key)
+    return {
+        "id": card["id"],
+        "kanji": normalize_text(card["kanji"]),
+        "kana": normalize_text(card["kana"]),
+        "english": normalize_text(card["english"]),
+        "notes": normalize_text(card["notes"]),
+        "schema_key": schema_key,
+        "schema_label": schema.get("Label", schema_key),
+        "word_form": normalize_text(card["word_form"]) or "dictionary",
+        "dictionary_headword": normalize_text(card["dictionary_headword"]),
+        "dictionary_reading": normalize_text(card["dictionary_reading"]),
+        "dictionary_gloss": normalize_text(card["dictionary_gloss"]),
+        "dictionary_pos": normalize_text(card["dictionary_pos"]),
+        "verb_type": normalize_text(card["verb_type"]),
+        "kanji_on_readings": normalize_text(card["kanji_on_readings"]),
+        "kanji_kun_readings": normalize_text(card["kanji_kun_readings"]),
+        "kanji_nanori_readings": normalize_text(card["kanji_nanori_readings"]),
+        "radical_position": normalize_text(card["radical_position"]),
+        "tags": DecodeJsonStringList(card["tags_json"]),
+    }
+
+
+def build_ai_deck_context(deck_id: str) -> Tuple[sqlite3.Connection, List[Dict[str, Any]], List[Dict[str, Any]], Dict[str, Any]]:
+    connection = get_connection()
+    deck_rows = list(GetDeckCards(connection, deck_id)) if deck_id else []
+    global_rows = list(ListGlobalCards(connection, get_request_user_id()))
+    preferred_vocabulary = build_vocabulary_seed_from_rows(deck_rows, "deck", limit=48)
+    support_vocabulary = build_vocabulary_seed_from_rows(global_rows, "global", limit=96)
+    deck_cards = [serialize_deck_card_for_ai(card) for card in deck_rows]
+    schemas = ListCardSchemaOptions(connection, get_request_user_id())
+    kanji_profile = build_deck_kanji_profile(deck_rows, preferred_vocabulary)
+    return (
+        connection,
+        deck_cards,
+        schemas,
+        {
+            "preferred_vocabulary": preferred_vocabulary,
+            "support_vocabulary": support_vocabulary,
+            "kanji_profile": kanji_profile,
+        },
+    )
+
+
+def build_ai_deck_change_request(
+    deck_id: str,
+    prompt: str,
+    mode: str,
+    target_count: int,
+    default_schema_key: str,
+    deck_cards: List[Dict[str, Any]],
+    schemas: List[Dict[str, Any]],
+    learning_context: Dict[str, Any],
+    selected_items: Optional[List[Dict[str, Any]]] = None,
+    feedback: str = "",
+) -> Dict[str, Any]:
+    return {
+        "task": "Propose flashcard deck changes for user review before applying.",
+        "deck_id": deck_id,
+        "request_mode": mode,
+        "user_prompt": prompt,
+        "review_feedback_for_selected_items": feedback,
+        "target_count": target_count,
+        "default_schema_key": default_schema_key,
+        "available_schemas": schemas,
+        "current_deck_cards": deck_cards[:80],
+        "selected_items_to_revise": selected_items or [],
+        "preferred_vocabulary": learning_context["preferred_vocabulary"][:48],
+        "support_vocabulary": learning_context["support_vocabulary"][:96],
+        "kanji_profile": learning_context["kanji_profile"],
+        "rules": [
+            "Return proposal items only. Do not say that anything has been saved.",
+            "Use operation 'add' for new cards and operation 'update' for existing cards.",
+            "For updates, target_card_id must exactly match one of the current_deck_cards ids.",
+            "Every item must include a complete card object with kanji, kana when the schema uses kana, english, notes, schema_key, and word_form.",
+            "Use only schema_key values from available_schemas.",
+            "Respect the kanji_profile so the proposed cards are understandable for this deck.",
+            "Prefer natural dictionary forms unless the prompt explicitly asks for another form.",
+            "For refine requests, preserve each selected item's id and only revise the selected items.",
+            "Return JSON only.",
+        ],
+        "json_schema": {
+            "summary": "string",
+            "items": [
+                {
+                    "id": "string",
+                    "operation": "add|update",
+                    "target_card_id": "string for updates",
+                    "reason": "string",
+                    "card": {
+                        "kanji": "string",
+                        "kana": "string",
+                        "english": "string",
+                        "notes": "string",
+                        "schema_key": "string",
+                        "word_form": "dictionary",
+                        "kanji_on_readings": "string",
+                        "kanji_kun_readings": "string",
+                        "kanji_nanori_readings": "string",
+                        "radical_position": "string",
+                        "tags": ["string"],
+                    },
+                }
+            ],
+        },
+    }
+
+
+def normalize_ai_card_payload(
+    connection: sqlite3.Connection,
+    raw_card: Dict[str, Any],
+    existing_card: Optional[Dict[str, Any]],
+    allowed_schema_keys: set,
+    default_schema_key: str,
+) -> Optional[Dict[str, Any]]:
+    schema_key = normalize_text(raw_card.get("schema_key", ""))
+    if schema_key not in allowed_schema_keys:
+        schema_key = normalize_text(existing_card.get("schema_key", "")) if existing_card else default_schema_key
+    if schema_key not in allowed_schema_keys:
+        schema_key = default_schema_key
+
+    schema = ResolveCardSchemaDefinition(connection, schema_key)
+    schema_fields = set(schema.get("FrontFields", []) + schema.get("BackFields", []))
+    requires_kana = "kana" in schema_fields
+
+    def value_for(field_name: str, fallback: str = "") -> str:
+        if field_name in raw_card:
+            return normalize_text(raw_card.get(field_name, ""))
+        if existing_card:
+            return normalize_text(existing_card.get(field_name, ""))
+        return fallback
+
+    card = {
+        "kanji": value_for("kanji"),
+        "kana": value_for("kana"),
+        "english": value_for("english"),
+        "notes": value_for("notes"),
+        "schema_key": schema_key,
+        "word_form": value_for("word_form", "dictionary") or "dictionary",
+        "kanji_on_readings": value_for("kanji_on_readings"),
+        "kanji_kun_readings": value_for("kanji_kun_readings"),
+        "kanji_nanori_readings": value_for("kanji_nanori_readings"),
+        "radical_position": value_for("radical_position"),
+        "tags": parse_tags(raw_card.get("tags", [])),
+    }
+
+    if not requires_kana:
+        card["kana"] = ""
+
+    if not card["kanji"] or not card["english"] or (requires_kana and not card["kana"]):
+        return None
+
+    return card
+
+
+def normalize_ai_deck_proposal_items(
+    connection: sqlite3.Connection,
+    raw_items: List[Dict[str, Any]],
+    deck_cards: List[Dict[str, Any]],
+    schemas: List[Dict[str, Any]],
+    default_schema_key: str,
+    mode: str,
+    limit: int,
+) -> List[Dict[str, Any]]:
+    allowed_schema_keys = {schema["key"] for schema in schemas}
+    existing_by_id = {card["id"]: card for card in deck_cards}
+    normalized_items: List[Dict[str, Any]] = []
+    seen_ids = set()
+
+    for raw_item in raw_items:
+        if len(normalized_items) >= limit:
+            break
+        if not isinstance(raw_item, dict):
+            continue
+
+        operation = normalize_text(raw_item.get("operation", "add")).lower() or "add"
+        if mode == "add":
+            operation = "add"
+        elif mode == "update":
+            operation = "update"
+        elif operation not in {"add", "update"}:
+            operation = "add"
+
+        target_card_id = normalize_text(raw_item.get("target_card_id", ""))
+        existing_card = existing_by_id.get(target_card_id)
+        if operation == "update" and existing_card is None:
+            continue
+
+        raw_card = raw_item.get("card") or raw_item.get("fields") or raw_item
+        if not isinstance(raw_card, dict):
+            continue
+
+        normalized_card = normalize_ai_card_payload(
+            connection,
+            raw_card,
+            existing_card,
+            allowed_schema_keys,
+            default_schema_key,
+        )
+        if normalized_card is None:
+            continue
+
+        item_id = normalize_text(raw_item.get("id", "")) or f"proposal_{uuid.uuid4()}"
+        while item_id in seen_ids:
+            item_id = f"proposal_{uuid.uuid4()}"
+        seen_ids.add(item_id)
+
+        normalized_items.append(
+            {
+                "id": item_id,
+                "operation": operation,
+                "target_card_id": target_card_id if operation == "update" else "",
+                "reason": normalize_text(raw_item.get("reason", "")),
+                "card": normalized_card,
+                "existing_card": existing_card if operation == "update" else None,
+            }
+        )
+
+    return normalized_items
+
+
+def action_generate_ai_deck_proposal(payload: Dict[str, Any]) -> Dict[str, Any]:
+    deck_id = normalize_text(payload.get("deck_id", ""))
+    prompt = normalize_text(payload.get("prompt", ""))
+    mode = normalize_text(payload.get("mode", "mixed")).lower() or "mixed"
+    default_schema_key = normalize_text(payload.get("schema_key", "")) or DefaultSchemaKey
+    try:
+        target_count = int(payload.get("target_count", 12))
+    except (TypeError, ValueError):
+        target_count = 12
+    target_count = max(1, min(40, target_count))
+
+    if mode not in {"add", "update", "mixed"}:
+        mode = "mixed"
+    if not deck_id:
+        raise RuntimeError("deck_id is required.")
+    if not prompt:
+        raise RuntimeError("Prompt is required.")
+    require_accessible_deck(deck_id, require_write=False)
+    require_ai_user()
+    require_card_schema(default_schema_key)
+
+    connection, deck_cards, schemas, learning_context = build_ai_deck_context(deck_id)
+    request_payload = build_ai_deck_change_request(
+        deck_id,
+        prompt,
+        mode,
+        target_count,
+        default_schema_key,
+        deck_cards,
+        schemas,
+        learning_context,
+    )
+    raw_result = GenerateDeckCardChanges(GetOpenAiClient(), DefaultModel, request_payload)
+    items = normalize_ai_deck_proposal_items(
+        connection,
+        CoerceJsonObjectList(raw_result, "items"),
+        deck_cards,
+        schemas,
+        default_schema_key,
+        mode,
+        target_count,
+    )
+    random.shuffle(items)
+    return {
+        "deck_id": deck_id,
+        "summary": normalize_text(raw_result.get("summary", "")),
+        "items": items,
+    }
+
+
+def action_refine_ai_deck_proposal(payload: Dict[str, Any]) -> Dict[str, Any]:
+    deck_id = normalize_text(payload.get("deck_id", ""))
+    prompt = normalize_text(payload.get("original_prompt", ""))
+    feedback = normalize_text(payload.get("feedback", ""))
+    mode = normalize_text(payload.get("mode", "mixed")).lower() or "mixed"
+    default_schema_key = normalize_text(payload.get("schema_key", "")) or DefaultSchemaKey
+    selected_items = [item for item in payload.get("selected_items", []) if isinstance(item, dict)]
+
+    if mode not in {"add", "update", "mixed"}:
+        mode = "mixed"
+    if not deck_id:
+        raise RuntimeError("deck_id is required.")
+    if not selected_items:
+        raise RuntimeError("Select one or more proposed cards to revise.")
+    if not feedback:
+        raise RuntimeError("Explain what should change for the selected card(s).")
+    require_accessible_deck(deck_id, require_write=False)
+    require_ai_user()
+    require_card_schema(default_schema_key)
+
+    connection, deck_cards, schemas, learning_context = build_ai_deck_context(deck_id)
+    request_payload = build_ai_deck_change_request(
+        deck_id,
+        prompt,
+        mode,
+        len(selected_items),
+        default_schema_key,
+        deck_cards,
+        schemas,
+        learning_context,
+        selected_items=selected_items,
+        feedback=feedback,
+    )
+    raw_result = GenerateDeckCardChanges(GetOpenAiClient(), DefaultModel, request_payload)
+    items = normalize_ai_deck_proposal_items(
+        connection,
+        CoerceJsonObjectList(raw_result, "items"),
+        deck_cards,
+        schemas,
+        default_schema_key,
+        mode,
+        len(selected_items),
+    )
+    random.shuffle(items)
+    return {
+        "deck_id": deck_id,
+        "summary": normalize_text(raw_result.get("summary", "")),
+        "items": items,
+    }
+
+
+def action_apply_ai_deck_proposal(payload: Dict[str, Any]) -> Dict[str, Any]:
+    deck_id = normalize_text(payload.get("deck_id", ""))
+    raw_items = [item for item in payload.get("items", []) if isinstance(item, dict)]
+    default_schema_key = normalize_text(payload.get("schema_key", "")) or DefaultSchemaKey
+
+    if not deck_id:
+        raise RuntimeError("deck_id is required.")
+    if not raw_items:
+        raise RuntimeError("No reviewed proposals were provided.")
+    require_accessible_deck(deck_id, require_write=True)
+    require_card_schema(default_schema_key)
+
+    connection, deck_cards, schemas, _ = build_ai_deck_context(deck_id)
+    items = normalize_ai_deck_proposal_items(
+        connection,
+        raw_items,
+        deck_cards,
+        schemas,
+        default_schema_key,
+        "mixed",
+        80,
+    )
+
+    added = 0
+    updated = 0
+    skipped = 0
+    errors: List[str] = []
+    for item in items:
+        card = item["card"]
+        if item["operation"] == "update":
+            is_updated = UpdateCardContent(
+                connection,
+                deck_id,
+                item["target_card_id"],
+                card["kanji"],
+                card["kana"],
+                card["english"],
+                card["notes"],
+                card["schema_key"],
+                card["kanji_on_readings"],
+                card["kanji_kun_readings"],
+                card["kanji_nanori_readings"],
+                card["radical_position"],
+            )
+            updated += int(is_updated)
+            skipped += int(not is_updated)
+            if not is_updated:
+                errors.append(f"Skipped update for {card['kanji']} because it duplicated another card or was missing.")
+            continue
+
+        is_added = AddCard(
+            connection,
+            deck_id,
+            {
+                "kanji": card["kanji"],
+                "kana": card["kana"],
+                "english": card["english"],
+                "notes": card["notes"],
+                "source_text": "ai_deck_assistant",
+                "schema_key": card["schema_key"],
+                "media_type": "none",
+                "media_files": [],
+                "tags": normalize_string_list([*card.get("tags", []), "ai_assistant"]),
+                "dictionary_entry_id": "",
+                "dictionary_headword": card["kanji"],
+                "dictionary_reading": card["kana"],
+                "dictionary_gloss": card["english"],
+                "dictionary_pos": "",
+                "dictionary_pos_tags": [],
+                "verb_type": "",
+                "word_form": card["word_form"],
+                "kanji_on_readings": card["kanji_on_readings"],
+                "kanji_kun_readings": card["kanji_kun_readings"],
+                "kanji_nanori_readings": card["kanji_nanori_readings"],
+                "radical_position": card["radical_position"],
+            },
+        )
+        added += int(is_added)
+        skipped += int(not is_added)
+        if not is_added:
+            errors.append(f"Skipped {card['kanji']} because it already exists in this schema.")
+
+    return {
+        "deck_id": deck_id,
+        "added": added,
+        "updated": updated,
+        "skipped": skipped,
+        "errors": errors,
+    }
+
+
 def action_import_deck_to_global(payload: Dict[str, Any]) -> Dict[str, Any]:
     deck_id = normalize_text(payload.get("deck_id", ""))
     if not deck_id:
@@ -2034,6 +2451,7 @@ def action_get_revision_cards(payload: Dict[str, Any]) -> Dict[str, Any]:
                 "word_form": normalize_text(card["word_form"]) or "dictionary",
             }
         )
+    random.shuffle(rows)
     return {"deck_id": deck_id, "rows": rows}
 
 
@@ -2380,6 +2798,52 @@ def build_vocabulary_seed_from_rows(
     return items
 
 
+def build_deck_kanji_profile(deck_rows: List[Any], vocabulary: List[Dict[str, str]]) -> Dict[str, Any]:
+    known_characters: List[str] = []
+    known_words: List[str] = []
+    for item in vocabulary:
+        word = normalize_text(item.get("word", ""))
+        reading = normalize_text(item.get("reading", ""))
+        if word and word != reading and word not in known_words:
+            known_words.append(word)
+        for char in word:
+            if "\u4e00" <= char <= "\u9fff" and char not in known_characters:
+                known_characters.append(char)
+        if len(known_characters) >= 120 and len(known_words) >= 48:
+            break
+
+    if not known_words:
+        for row in deck_rows:
+            word = normalize_text(row["kanji"])
+            reading = normalize_text(row["kana"])
+            if word and word != reading and word not in known_words:
+                known_words.append(word)
+            if len(known_words) >= 48:
+                break
+
+    return {
+        "known_kanji_characters": known_characters[:120],
+        "known_words": known_words[:48],
+        "guidance": (
+            "Prefer kanji already present in known_words or known_kanji_characters. "
+            "For important words outside that level, write them in kana or include a kana reading in parentheses."
+        ),
+    }
+
+
+def shuffle_reading_questions(questions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    shuffled_questions = [dict(question) for question in questions]
+    for question in shuffled_questions:
+        choices = list(question.get("choices") or [])
+        correct_index = int(question.get("correct_index", 0) or 0)
+        correct_choice = choices[correct_index] if 0 <= correct_index < len(choices) else ""
+        random.shuffle(choices)
+        question["choices"] = choices
+        question["correct_index"] = choices.index(correct_choice) if correct_choice in choices else 0
+    random.shuffle(shuffled_questions)
+    return shuffled_questions
+
+
 def build_reading_topic_hint(deck_rows: List[Any], explicit_topic: str) -> str:
     if explicit_topic:
         return explicit_topic
@@ -2597,7 +3061,8 @@ def action_start_reading_session(payload: Dict[str, Any]) -> Dict[str, Any]:
     require_accessible_deck(deck_id, require_write=False)
     require_ai_user()
 
-    connection, _, _, preferred_vocabulary, support_vocabulary = build_learning_vocabulary_context(deck_id)
+    connection, deck_rows, _, preferred_vocabulary, support_vocabulary = build_learning_vocabulary_context(deck_id)
+    kanji_profile = build_deck_kanji_profile(deck_rows, preferred_vocabulary)
     scenario_row = GetAiScenario(connection, scenario_id)
     if normalize_text(scenario_row["deck_id"]) != deck_id or normalize_text(scenario_row["owner_user_id"]) != get_request_user_id():
         raise RuntimeError("Scenario does not belong to the selected deck.")
@@ -2613,6 +3078,7 @@ def action_start_reading_session(payload: Dict[str, Any]) -> Dict[str, Any]:
             preferred_vocabulary,
             support_vocabulary,
             scenario,
+            kanjiProfile=kanji_profile,
         )
         material = SaveReadingMaterial(
             connection,
@@ -2625,14 +3091,14 @@ def action_start_reading_session(payload: Dict[str, Any]) -> Dict[str, Any]:
             generated_material["new_words"],
         )
 
-    questions = GenerateReadingQuestionsFromPassage(
+    questions = shuffle_reading_questions(GenerateReadingQuestionsFromPassage(
         client,
         DefaultModel,
         material["title"],
         material["passage"],
         questionCount=scenario.get("question_count", 4),
         variationHint=f"{scenario_id}:{time.time()}",
-    )
+    ))
     IncrementAiScenarioUsage(connection, scenario_id)
 
     return {
@@ -2762,7 +3228,8 @@ def action_start_conversation_session(payload: Dict[str, Any]) -> Dict[str, Any]
     require_accessible_deck(deck_id, require_write=False)
     require_ai_user()
 
-    connection, _, _, preferred_vocabulary, support_vocabulary = build_learning_vocabulary_context(deck_id)
+    connection, deck_rows, _, preferred_vocabulary, support_vocabulary = build_learning_vocabulary_context(deck_id)
+    kanji_profile = build_deck_kanji_profile(deck_rows, preferred_vocabulary)
     scenario_row = GetAiScenario(connection, scenario_id)
     if normalize_text(scenario_row["deck_id"]) != deck_id or normalize_text(scenario_row["owner_user_id"]) != get_request_user_id():
         raise RuntimeError("Scenario does not belong to the selected deck.")
@@ -2775,6 +3242,7 @@ def action_start_conversation_session(payload: Dict[str, Any]) -> Dict[str, Any]
         preferred_vocabulary,
         support_vocabulary,
         scenario,
+        kanjiProfile=kanji_profile,
     )
     messages = append_conversation_message([], "assistant", opening["opening_message"])
     session = CreateConversationSession(connection, get_request_user_id(), scenario_id, deck_id, messages)
@@ -2805,9 +3273,10 @@ def action_send_conversation_message(payload: Dict[str, Any]) -> Dict[str, Any]:
 
     scenario_row = GetAiScenario(connection, normalize_text(session_row["scenario_id"]))
     scenario = build_scenario_prompt_payload(scenario_row)
-    _, _, _, preferred_vocabulary, support_vocabulary = build_learning_vocabulary_context(
+    _, deck_rows, _, preferred_vocabulary, support_vocabulary = build_learning_vocabulary_context(
         normalize_text(session_row["deck_id"])
     )
+    kanji_profile = build_deck_kanji_profile(deck_rows, preferred_vocabulary)
     current_messages = json.loads(session_row["messages_json"] or "[]")
     if not isinstance(current_messages, list):
         current_messages = []
@@ -2821,6 +3290,7 @@ def action_send_conversation_message(payload: Dict[str, Any]) -> Dict[str, Any]:
         scenario,
         current_messages,
         user_message,
+        kanjiProfile=kanji_profile,
     )
 
     next_messages = append_conversation_message(current_messages, "user", user_message)
@@ -2903,6 +3373,7 @@ def action_generate_reading_comprehension(payload: Dict[str, Any]) -> Dict[str, 
         sourceStyle=options.get("reading_source", DEFAULT_READING_COMPREHENSION_SOURCE),
         topicHint=topic_hint,
         questionCount=options.get("reading_question_count", 4),
+        kanjiProfile=build_deck_kanji_profile(deck_rows, preferred_vocabulary),
     )
 
     return {
@@ -2910,7 +3381,7 @@ def action_generate_reading_comprehension(payload: Dict[str, Any]) -> Dict[str, 
         "title": package["title"],
         "source_note": package["source_note"],
         "passage": package["passage"],
-        "questions": package["questions"],
+        "questions": shuffle_reading_questions(package["questions"]),
         "new_words": package["new_words"],
         "options_used": options,
     }
@@ -3072,6 +3543,9 @@ ACTIONS = {
     "update_card_schema": action_update_card_schema,
     "delete_card_schema": action_delete_card_schema,
     "add_manual_card": action_add_manual_card,
+    "generate_ai_deck_proposal": action_generate_ai_deck_proposal,
+    "refine_ai_deck_proposal": action_refine_ai_deck_proposal,
+    "apply_ai_deck_proposal": action_apply_ai_deck_proposal,
     "import_deck_to_global": action_import_deck_to_global,
     "list_global_cards": action_list_global_cards,
     "delete_global_cards": action_delete_global_cards,

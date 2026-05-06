@@ -7,6 +7,7 @@ import { cn } from './ui/utils';
 import type { LucideIcon } from 'lucide-react';
 import {
   BookOpen,
+  Bot,
   Folder,
   Gamepad2,
   GraduationCap,
@@ -93,6 +94,7 @@ export function Layout({ children }: { children: ReactNode }) {
   const currentDeckNavItems: NavItem[] = currentDeck
     ? [
         { path: `/deck/${currentDeck.id}`, label: 'Deck Operations', icon: Folder },
+        { path: `/ai/${currentDeck.id}`, label: 'AI Assistant', icon: Bot },
         { path: `/revision/${currentDeck.id}`, label: 'Revision', icon: GraduationCap },
         { path: `/practice/${currentDeck.id}`, label: 'Practice', icon: Gamepad2 },
         { path: `/reading/${currentDeck.id}`, label: 'Reading', icon: ScrollText },

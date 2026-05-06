@@ -18,6 +18,7 @@ import { ImportExport } from './pages/ImportExport';
 import { Reading } from './pages/Reading';
 import { Conversation } from './pages/Conversation';
 import { Account } from './pages/Account';
+import { AiDeckAssistant } from './pages/AiDeckAssistant';
 import { Admin } from './pages/Admin';
 
 function LoadingState() {
@@ -202,6 +203,14 @@ export const router = createBrowserRouter([
     Component: () => (
       <PrivatePage>
         <Conversation />
+      </PrivatePage>
+    ),
+  },
+  {
+    path: '/ai/:deckId',
+    Component: () => (
+      <PrivatePage>
+        <AiDeckAssistant />
       </PrivatePage>
     ),
   },

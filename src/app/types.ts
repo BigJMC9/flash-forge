@@ -318,6 +318,48 @@ export interface ReadingComprehensionResponse {
   options_used: PracticeRoundOptions;
 }
 
+export interface AiDeckProposalCard {
+  kanji: string;
+  kana: string;
+  english: string;
+  notes: string;
+  schema_key: string;
+  word_form: string;
+  kanji_on_readings: string;
+  kanji_kun_readings: string;
+  kanji_nanori_readings: string;
+  radical_position: string;
+  tags: string[];
+}
+
+export interface AiDeckExistingCard extends AiDeckProposalCard {
+  id: string;
+  schema_label: string;
+}
+
+export interface AiDeckProposalItem {
+  id: string;
+  operation: 'add' | 'update' | string;
+  target_card_id: string;
+  reason: string;
+  card: AiDeckProposalCard;
+  existing_card: AiDeckExistingCard | null;
+}
+
+export interface AiDeckProposalResponse {
+  deck_id: string;
+  summary: string;
+  items: AiDeckProposalItem[];
+}
+
+export interface AiDeckProposalApplyResponse {
+  deck_id: string;
+  added: number;
+  updated: number;
+  skipped: number;
+  errors: string[];
+}
+
 export type ScenarioMode = 'reading' | 'conversation';
 
 export interface AiScenarioRow {

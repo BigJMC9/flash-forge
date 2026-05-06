@@ -414,6 +414,7 @@ def GenerateReadingComprehensionPackage(
     sourceStyle: str = "story",
     topicHint: str = "",
     questionCount: int = 4,
+    kanjiProfile: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     normalizedLevel = (readingLevel or "intermediate").strip().lower() or "intermediate"
     normalizedSourceStyle = (sourceStyle or "story").strip().lower() or "story"
@@ -428,10 +429,12 @@ def GenerateReadingComprehensionPackage(
         "question_count": normalizedQuestionCount,
         "preferred_vocabulary": preferredVocabulary[:48],
         "support_vocabulary": supportVocabulary[:96],
+        "kanji_profile": kanjiProfile or {},
         "rules": [
             "Write the passage entirely in Japanese.",
             "Use the preferred_vocabulary heavily; those deck words should drive the situation and topic.",
             "Support vocabulary may appear, but only as secondary reinforcement.",
+            "Keep kanji understandable for the learner's current deck: prefer kanji from kanji_profile; use kana or kana readings for unfamiliar kanji.",
             "Introduce new words slowly and sparingly. At most 6 new words total.",
             "If source_style is 'news_style', write in an original short news-report style. Do not quote or imitate a real article.",
             "All quiz questions, answer choices, and explanations must be in Japanese.",
@@ -732,16 +735,19 @@ def GenerateReadingMaterial(
     preferredVocabulary: List[Dict[str, str]],
     supportVocabulary: List[Dict[str, str]],
     scenario: Dict[str, Any],
+    kanjiProfile: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     promptPayload = {
         "task": "Generate Japanese reading material for a learner.",
         "scenario": scenario,
         "preferred_vocabulary": preferredVocabulary[:48],
         "support_vocabulary": supportVocabulary[:96],
+        "kanji_profile": kanjiProfile or {},
         "rules": [
             "Write the passage entirely in Japanese.",
             "Use the preferred_vocabulary heavily; those words should shape the topic.",
             "Support vocabulary may appear, but only as secondary reinforcement.",
+            "Keep kanji understandable for the learner's current deck: prefer kanji from kanji_profile; use kana or kana readings for unfamiliar kanji.",
             "Introduce new words slowly and sparingly. At most 6 new words total.",
             "If the scenario style is news_style, write an original short news-style passage. Do not imitate a real article.",
             "Return JSON only.",
@@ -860,16 +866,19 @@ def GenerateConversationOpening(
     preferredVocabulary: List[Dict[str, str]],
     supportVocabulary: List[Dict[str, str]],
     scenario: Dict[str, Any],
+    kanjiProfile: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     promptPayload = {
         "task": "Start a Japanese conversation practice scenario.",
         "scenario": scenario,
         "preferred_vocabulary": preferredVocabulary[:40],
         "support_vocabulary": supportVocabulary[:72],
+        "kanji_profile": kanjiProfile or {},
         "rules": [
             "Reply entirely in Japanese.",
             "Open the conversation naturally based on the scenario.",
             "Keep the opening to 2 or 3 short sentences.",
+            "Keep kanji understandable for the learner's current deck: prefer kanji from kanji_profile; use kana or kana readings for unfamiliar kanji.",
             "Return JSON only.",
         ],
         "json_schema": {
@@ -914,12 +923,14 @@ def GenerateConversationReply(
     scenario: Dict[str, Any],
     history: List[Dict[str, str]],
     userMessage: str,
+    kanjiProfile: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     promptPayload = {
         "task": "Continue a Japanese conversation practice scenario.",
         "scenario": scenario,
         "preferred_vocabulary": preferredVocabulary[:40],
         "support_vocabulary": supportVocabulary[:72],
+        "kanji_profile": kanjiProfile or {},
         "conversation_history": history[-12:],
         "latest_user_message": (userMessage or "").strip(),
         "rules": [
@@ -927,6 +938,7 @@ def GenerateConversationReply(
             "Stay in character for the scenario.",
             "Keep the reply to 2 or 3 short paragraphs or sentences.",
             "You may gently rephrase or naturally model better Japanese, but do not switch into an explicit teacher lecture.",
+            "Keep kanji understandable for the learner's current deck: prefer kanji from kanji_profile; use kana or kana readings for unfamiliar kanji.",
             "Return JSON only.",
         ],
         "json_schema": {
@@ -1024,3 +1036,30 @@ def GenerateConversationFeedback(
         "weaknesses": NormalizeStringArray(parsed.get("weaknesses")),
         "improvements": NormalizeStringArray(parsed.get("improvements")),
     }
+
+
+def GenerateDeckCardChanges(
+    client: OpenAI,
+    model: str,
+    requestPayload: Dict[str, Any],
+) -> Dict[str, Any]:
+    raw = RequestResponseText(
+        client,
+        model,
+        [
+            {
+                "role": "system",
+                "content": (
+                    "You help maintain Japanese flashcard decks. "
+                    "Propose precise card additions or updates, but never claim changes were applied. "
+                    "Use the provided schemas and existing card ids exactly. "
+                    "Output valid JSON only."
+                ),
+            },
+            {
+                "role": "user",
+                "content": [{"type": "input_text", "text": json.dumps(requestPayload, ensure_ascii=False)}],
+            },
+        ],
+    )
+    return CoerceJsonObject(ParseJsonResponse(raw))
