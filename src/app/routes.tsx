@@ -9,6 +9,7 @@ import { Dashboard } from './pages/Dashboard';
 import { Collections } from './pages/Collections';
 import { Dictionary } from './pages/Dictionary';
 import { Composer } from './pages/Composer';
+import { Formats } from './pages/Formats';
 import { GlobalLibrary } from './pages/GlobalLibrary';
 import { DeckOperations } from './pages/DeckOperations';
 import { Revision } from './pages/Revision';
@@ -145,6 +146,14 @@ export const router = createBrowserRouter([
     Component: () => (
       <PrivatePage>
         <Composer />
+      </PrivatePage>
+    ),
+  },
+  {
+    path: '/formats',
+    Component: () => (
+      <PrivatePage>
+        <Formats />
       </PrivatePage>
     ),
   },

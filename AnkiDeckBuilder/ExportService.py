@@ -9,6 +9,7 @@ import sqlite3
 
 from AnkiDeckBuilder.AppConfig import (
     CardSchemas,
+    DefaultSchemaKey,
     ExportDir,
     NoteModelId,
     PublicIconDir,
@@ -17,7 +18,7 @@ from AnkiDeckBuilder.AppConfig import (
     SupportedImageExtensions,
     SupportedVideoExtensions,
 )
-from AnkiDeckBuilder.DatabaseService import GetDeckCards, GetDeckRow
+from AnkiDeckBuilder.DatabaseService import GetDeckCards, GetDeckRow, ResolveCardSchemaDefinition
 
 
 def ResolveRadicalPosition(value: str) -> Tuple[str, str]:
@@ -119,8 +120,12 @@ def RenderDictionaryReference(card: sqlite3.Row) -> str:
     return f"<small>JMDict #{html.escape(entryId)}: {detail}{formText}</small>"
 
 
-def BuildNoteFields(card: sqlite3.Row) -> Tuple[str, str, str]:
-    schema = CardSchemas[card["schema_key"]]
+def BuildNoteFields(card: sqlite3.Row, connection: sqlite3.Connection | None = None) -> Tuple[str, str, str]:
+    schema = (
+        ResolveCardSchemaDefinition(connection, card["schema_key"])
+        if connection is not None
+        else CardSchemas.get(card["schema_key"], CardSchemas[DefaultSchemaKey])
+    )
     fieldLabels = schema.get("FieldLabels", {})
 
     frontParts = [
@@ -136,7 +141,7 @@ def BuildNoteFields(card: sqlite3.Row) -> Tuple[str, str, str]:
 
     mediaHtml = RenderMedia(card)
     dictionaryReferenceHtml = RenderDictionaryReference(card)
-    notes = RenderField("notes", card)
+    notes = "" if "notes" in set(schema["FrontFields"] + schema["BackFields"]) else RenderField("notes", card)
 
     frontHtml = "<br>".join(frontParts)
     backHtml = "<br>".join(backParts)
@@ -234,7 +239,7 @@ def ExportDeckPackage(connection: sqlite3.Connection, deckId: str) -> Path:
 
     mediaFiles = []
     for card in cards:
-        frontHtml, backHtml, sortField = BuildNoteFields(card)
+        frontHtml, backHtml, sortField = BuildNoteFields(card, connection)
         note = genanki.Note(model=model, fields=[frontHtml, backHtml, sortField])
         deck.add_note(note)
         mediaFiles.extend(json.loads(card["media_files_json"]))

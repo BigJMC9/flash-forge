@@ -11,6 +11,7 @@ import {
   Gamepad2,
   GraduationCap,
   Home,
+  Layers3,
   LayoutDashboard,
   Library,
   LogIn,
@@ -80,6 +81,7 @@ export function Layout({ children }: { children: ReactNode }) {
     { path: '/collections', label: 'Collections', icon: Folder },
     { path: '/dictionary', label: 'Dictionary', icon: BookOpen },
     { path: '/composer', label: 'Composer', icon: PenTool },
+    { path: '/formats', label: 'Formats', icon: Layers3 },
     { path: '/global-library', label: 'Global Library', icon: Library },
     { path: '/import-export', label: 'Import / Export', icon: Upload },
   ];

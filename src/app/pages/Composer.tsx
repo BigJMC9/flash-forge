@@ -1,11 +1,10 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Save, Sparkles, Upload } from 'lucide-react';
 import { useApp } from '../contexts/AppContext';
 import { callAction, callActionWithFiles, errorMessage } from '../lib/backend';
 import { parseCommaSeparated } from '../lib/text';
 import { ManualFormValue } from '../types';
 import {
-  KANJI_DETAIL_SCHEMA_KEY,
   RADICAL_POSITION_OPTIONS,
   getRadicalPositionOption,
 } from '../utils/kanji';
@@ -23,8 +22,16 @@ function createDefaultForms(): Record<string, ManualFormValue> {
   };
 }
 
+const KANJI_DETAIL_FIELDS = [
+  'kanji_on_readings',
+  'kanji_kun_readings',
+  'kanji_nanori_readings',
+  'radical_position',
+];
+
 export function Composer() {
   const {
+    cardSchemaFields,
     cardSchemas,
     currentDeck,
     currentDeckId,
@@ -52,8 +59,56 @@ export function Composer() {
   const [forms, setForms] =
     useState<Record<string, ManualFormValue>>(createDefaultForms);
   const [mediaFiles, setMediaFiles] = useState<File[]>([]);
-  const isKanjiDetailSchema = schemaKey === KANJI_DETAIL_SCHEMA_KEY;
+  const selectedSchema = useMemo(
+    () => cardSchemas.find((schema) => schema.key === schemaKey) ?? null,
+    [cardSchemas, schemaKey],
+  );
+  const schemaFieldNames = useMemo(
+    () =>
+      new Set([
+        ...(selectedSchema?.front_fields ?? ['kana', 'kanji']),
+        ...(selectedSchema?.back_fields ?? ['english']),
+      ]),
+    [selectedSchema],
+  );
+  const schemaFieldByKey = useMemo<Record<string, { label: string; placeholder: string }>>(
+    () =>
+      Object.fromEntries(
+        cardSchemaFields.map((field) => [field.key, field]),
+      ) as Record<string, { label: string; placeholder: string }>,
+    [cardSchemaFields],
+  );
+  const hasSchemaField = (fieldName: string) => schemaFieldNames.has(fieldName);
+  const schemaRequiresKana = hasSchemaField('kana');
+  const hasKanjiDetailFields = KANJI_DETAIL_FIELDS.some(hasSchemaField);
+  const supportsWordOptions = schemaRequiresKana && !hasKanjiDetailFields;
   const selectedRadicalPosition = getRadicalPositionOption(radicalPosition);
+
+  const fieldLabel = (fieldName: string) =>
+    selectedSchema?.field_labels?.[fieldName] ??
+    schemaFieldByKey[fieldName]?.label ??
+    fieldName.replace(/_/g, ' ');
+
+  const fieldPlaceholder = (fieldName: string, fallback: string) =>
+    schemaFieldByKey[fieldName]?.placeholder || fallback;
+
+  useEffect(() => {
+    if (!cardSchemas.length) {
+      return;
+    }
+    if (!cardSchemas.some((schema) => schema.key === schemaKey)) {
+      setSchemaKey(defaultSchemaKey);
+    }
+  }, [cardSchemas, defaultSchemaKey, schemaKey]);
+
+  useEffect(() => {
+    if (supportsWordOptions) {
+      return;
+    }
+    setWordForm('dictionary');
+    setWordKind('noun');
+    setForms(createDefaultForms());
+  }, [supportsWordOptions]);
 
   const hasGeneratedForms = useMemo(
     () =>
@@ -78,6 +133,14 @@ export function Composer() {
   };
 
   const handleGenerateForms = async () => {
+    if (!supportsWordOptions) {
+      setStatus({
+        type: 'warning',
+        message: 'The selected schema does not use word forms.',
+      });
+      return;
+    }
+
     if (!kanji.trim() || !kana.trim()) {
       setStatus({
         type: 'warning',
@@ -112,12 +175,16 @@ export function Composer() {
   };
 
   const handleSave = async () => {
-    if (!kanji.trim() || !english.trim() || (!isKanjiDetailSchema && !kana.trim())) {
+    const missingFields = [
+      !kanji.trim() ? fieldLabel('kanji') : '',
+      schemaRequiresKana && !kana.trim() ? fieldLabel('kana') : '',
+      !english.trim() ? fieldLabel('english') : '',
+    ].filter(Boolean);
+
+    if (missingFields.length > 0) {
       setStatus({
         type: 'warning',
-        message: isKanjiDetailSchema
-          ? 'Kanji and English are required.'
-          : 'Kanji, kana, and English are required.',
+        message: `Required fields: ${missingFields.join(', ')}.`,
       });
       return;
     }
@@ -134,18 +201,18 @@ export function Composer() {
       destination,
       deck_id: currentDeckId ?? '',
       schema_key: schemaKey,
-      word_form: wordForm,
-      word_kind: wordKind,
+      word_form: supportsWordOptions ? wordForm : 'dictionary',
+      word_kind: supportsWordOptions ? wordKind : 'noun',
       kanji,
-      kana,
+      kana: schemaRequiresKana ? kana : '',
       english,
       notes,
       tags: parseCommaSeparated(tags),
-      kanji_on_readings: kanjiOnReadings,
-      kanji_kun_readings: kanjiKunReadings,
-      kanji_nanori_readings: kanjiNanoriReadings,
-      radical_position: radicalPosition,
-      forms,
+      kanji_on_readings: hasSchemaField('kanji_on_readings') ? kanjiOnReadings : '',
+      kanji_kun_readings: hasSchemaField('kanji_kun_readings') ? kanjiKunReadings : '',
+      kanji_nanori_readings: hasSchemaField('kanji_nanori_readings') ? kanjiNanoriReadings : '',
+      radical_position: hasSchemaField('radical_position') ? radicalPosition : '',
+      forms: supportsWordOptions ? forms : createDefaultForms(),
     };
 
     try {
@@ -193,7 +260,13 @@ export function Composer() {
       </div>
 
       <div className="app-panel p-6">
-        <div className="grid md:grid-cols-3 gap-4 mb-6">
+        <div
+          className={
+            supportsWordOptions
+              ? 'grid md:grid-cols-3 gap-4 mb-6'
+              : 'grid md:grid-cols-2 gap-4 mb-6'
+          }
+        >
           <div>
             <label className="block text-sm text-gray-600 mb-2">
               Destination
@@ -232,161 +305,190 @@ export function Composer() {
             </select>
           </div>
 
-          <div>
-            <label className="block text-sm text-gray-600 mb-2">
-              Word Form
-            </label>
+          {supportsWordOptions && (
+            <div>
+              <label className="block text-sm text-gray-600 mb-2">
+                Word Form
+              </label>
+              <select
+                value={wordForm}
+                onChange={(event) => setWordForm(event.target.value)}
+                className="app-input"
+              >
+                {verbForms.map((form) => (
+                  <option key={form.key} value={form.key}>
+                    {form.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+        </div>
+
+        {supportsWordOptions && (
+          <div className="mb-6">
+            <label className="block text-sm text-gray-600 mb-2">Word Kind</label>
             <select
-              value={wordForm}
-              onChange={(event) => setWordForm(event.target.value)}
+              value={wordKind}
+              onChange={(event) => setWordKind(event.target.value)}
               className="app-input"
             >
-              {verbForms.map((form) => (
-                <option key={form.key} value={form.key}>
-                  {form.label}
+              {verbTypes.map((type) => (
+                <option key={type.key} value={type.key}>
+                  {type.label}
                 </option>
               ))}
             </select>
           </div>
-        </div>
+        )}
 
-        <div className="mb-6">
-          <label className="block text-sm text-gray-600 mb-2">Word Kind</label>
-          <select
-            value={wordKind}
-            onChange={(event) => setWordKind(event.target.value)}
-            className="app-input"
-          >
-            {verbTypes.map((type) => (
-              <option key={type.key} value={type.key}>
-                {type.label}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div className="grid md:grid-cols-2 gap-4 mb-6">
+        <div
+          className={
+            schemaRequiresKana
+              ? 'grid md:grid-cols-2 gap-4 mb-6'
+              : 'grid gap-4 mb-6'
+          }
+        >
           <div>
             <label className="block text-sm text-gray-600 mb-2">
-              Kanji
+              {fieldLabel('kanji')}
             </label>
             <input
               type="text"
               value={kanji}
               onChange={(event) => setKanji(event.target.value)}
-              placeholder="食べる"
+              placeholder={fieldPlaceholder('kanji', '食べる')}
               className="app-input"
             />
           </div>
 
-          <div>
-            <label className="block text-sm text-gray-600 mb-2">Kana</label>
-            <input
-              type="text"
-              value={kana}
-              onChange={(event) => setKana(event.target.value)}
-              placeholder={isKanjiDetailSchema ? 'Optional reading hint' : 'たべる'}
-              className="app-input"
-            />
-          </div>
+          {schemaRequiresKana && (
+            <div>
+              <label className="block text-sm text-gray-600 mb-2">
+                {fieldLabel('kana')}
+              </label>
+              <input
+                type="text"
+                value={kana}
+                onChange={(event) => setKana(event.target.value)}
+                placeholder={fieldPlaceholder('kana', 'たべる')}
+                className="app-input"
+              />
+            </div>
+          )}
         </div>
 
         <div className="mb-6">
-          <label className="block text-sm text-gray-600 mb-2">English</label>
+          <label className="block text-sm text-gray-600 mb-2">
+            {fieldLabel('english')}
+          </label>
           <input
             type="text"
             value={english}
             onChange={(event) => setEnglish(event.target.value)}
-            placeholder="to eat"
+            placeholder={fieldPlaceholder('english', 'to eat')}
             className="app-input"
           />
         </div>
 
-        {isKanjiDetailSchema && (
+        {hasKanjiDetailFields && (
           <div className="mb-6 rounded-xl border border-gray-200 bg-gray-50 p-4">
             <h3 className="font-semibold mb-4">Kanji Details</h3>
             <div className="grid md:grid-cols-3 gap-4 mb-4">
-              <div>
-                <label className="block text-sm text-gray-600 mb-2">
-                  ON Reading
-                </label>
-                <input
-                  type="text"
-                  value={kanjiOnReadings}
-                  onChange={(event) => setKanjiOnReadings(event.target.value)}
-                  placeholder="オン, いん"
-                  className="app-input"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm text-gray-600 mb-2">
-                  Kun Reading
-                </label>
-                <input
-                  type="text"
-                  value={kanjiKunReadings}
-                  onChange={(event) => setKanjiKunReadings(event.target.value)}
-                  placeholder="おと, ね"
-                  className="app-input"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm text-gray-600 mb-2">
-                  Nanori
-                </label>
-                <input
-                  type="text"
-                  value={kanjiNanoriReadings}
-                  onChange={(event) => setKanjiNanoriReadings(event.target.value)}
-                  placeholder="Optional name reading"
-                  className="app-input"
-                />
-              </div>
-            </div>
-
-            <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_auto] md:items-end">
-              <div>
-                <label className="block text-sm text-gray-600 mb-2">
-                  Radical Position
-                </label>
-                <select
-                  value={radicalPosition}
-                  onChange={(event) => setRadicalPosition(event.target.value)}
-                  className="app-input"
-                >
-                  {RADICAL_POSITION_OPTIONS.map((option) => (
-                    <option key={option.key || 'none'} value={option.key}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {selectedRadicalPosition?.icon && (
-                <div className="flex items-center gap-3 rounded-lg border border-gray-200 bg-white px-4 py-3">
-                  <img
-                    src={selectedRadicalPosition.icon}
-                    alt={selectedRadicalPosition.label}
-                    className="h-8 w-8 object-contain"
+              {hasSchemaField('kanji_on_readings') && (
+                <div>
+                  <label className="block text-sm text-gray-600 mb-2">
+                    {fieldLabel('kanji_on_readings')}
+                  </label>
+                  <input
+                    type="text"
+                    value={kanjiOnReadings}
+                    onChange={(event) => setKanjiOnReadings(event.target.value)}
+                    placeholder={fieldPlaceholder('kanji_on_readings', 'オン, いん')}
+                    className="app-input"
                   />
-                  <span className="text-sm font-medium text-gray-700">
-                    {selectedRadicalPosition.label}
-                  </span>
+                </div>
+              )}
+
+              {hasSchemaField('kanji_kun_readings') && (
+                <div>
+                  <label className="block text-sm text-gray-600 mb-2">
+                    {fieldLabel('kanji_kun_readings')}
+                  </label>
+                  <input
+                    type="text"
+                    value={kanjiKunReadings}
+                    onChange={(event) => setKanjiKunReadings(event.target.value)}
+                    placeholder={fieldPlaceholder('kanji_kun_readings', 'おと, ね')}
+                    className="app-input"
+                  />
+                </div>
+              )}
+
+              {hasSchemaField('kanji_nanori_readings') && (
+                <div>
+                  <label className="block text-sm text-gray-600 mb-2">
+                    {fieldLabel('kanji_nanori_readings')}
+                  </label>
+                  <input
+                    type="text"
+                    value={kanjiNanoriReadings}
+                    onChange={(event) => setKanjiNanoriReadings(event.target.value)}
+                    placeholder={fieldPlaceholder(
+                      'kanji_nanori_readings',
+                      'Optional name reading',
+                    )}
+                    className="app-input"
+                  />
                 </div>
               )}
             </div>
+
+            {hasSchemaField('radical_position') && (
+              <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_auto] md:items-end">
+                <div>
+                  <label className="block text-sm text-gray-600 mb-2">
+                    {fieldLabel('radical_position')}
+                  </label>
+                  <select
+                    value={radicalPosition}
+                    onChange={(event) => setRadicalPosition(event.target.value)}
+                    className="app-input"
+                  >
+                    {RADICAL_POSITION_OPTIONS.map((option) => (
+                      <option key={option.key || 'none'} value={option.key}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {selectedRadicalPosition?.icon && (
+                  <div className="flex items-center gap-3 rounded-lg border border-gray-200 bg-white px-4 py-3">
+                    <img
+                      src={selectedRadicalPosition.icon}
+                      alt={selectedRadicalPosition.label}
+                      className="h-8 w-8 object-contain"
+                    />
+                    <span className="text-sm font-medium text-gray-700">
+                      {selectedRadicalPosition.label}
+                    </span>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
 
         <div className="mb-6">
-          <label className="block text-sm text-gray-600 mb-2">Notes</label>
+          <label className="block text-sm text-gray-600 mb-2">
+            {fieldLabel('notes')}
+          </label>
           <textarea
             value={notes}
             onChange={(event) => setNotes(event.target.value)}
             rows={3}
-            placeholder="Optional notes or mnemonic"
+            placeholder={fieldPlaceholder('notes', 'Optional notes or mnemonic')}
             className="app-input"
           />
         </div>
@@ -426,17 +528,19 @@ export function Composer() {
           </div>
         </div>
 
-        <div className="mb-4">
-          <button
-            onClick={() => void handleGenerateForms()}
-            className="app-btn-secondary"
-          >
-            <Sparkles className="w-4 h-4" />
-            Generate Forms
-          </button>
-        </div>
+        {supportsWordOptions && (
+          <div className="mb-4">
+            <button
+              onClick={() => void handleGenerateForms()}
+              className="app-btn-secondary"
+            >
+              <Sparkles className="w-4 h-4" />
+              Generate Forms
+            </button>
+          </div>
+        )}
 
-        {hasGeneratedForms && (
+        {supportsWordOptions && hasGeneratedForms && (
           <div className="mb-6">
             <h3 className="font-semibold mb-3">Generated Forms</h3>
             <div className="grid md:grid-cols-2 gap-4">

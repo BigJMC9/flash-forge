@@ -9,6 +9,7 @@ import React, {
 import { callAction, errorMessage } from '../lib/backend';
 import {
   BootstrapPayload,
+  CardSchemaFieldOption,
   CardSchemaOption,
   CollectionRow,
   DashboardSummary,
@@ -75,6 +76,7 @@ interface AppContextType {
   decks: DeckRow[];
   dashboard: DashboardSummary;
   cardSchemas: CardSchemaOption[];
+  cardSchemaFields: CardSchemaFieldOption[];
   verbForms: VerbFormOption[];
   verbTypes: VerbTypeOption[];
   practiceModes: PracticeModeOption[];
@@ -204,6 +206,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const decks = bootstrap?.decks ?? [];
   const dashboard = bootstrap?.dashboard ?? EMPTY_DASHBOARD;
   const cardSchemas = bootstrap?.card_schemas ?? [];
+  const cardSchemaFields = bootstrap?.card_schema_fields ?? [];
   const verbForms = bootstrap?.verb_forms ?? [];
   const verbTypes = bootstrap?.verb_types ?? [];
   const practiceModes = bootstrap?.defaults.practice_modes ?? [];
@@ -392,6 +395,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       decks,
       dashboard,
       cardSchemas,
+      cardSchemaFields,
       verbForms,
       verbTypes,
       practiceModes,
@@ -426,6 +430,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     [
       bootstrap?.app_title,
       cardSchemas,
+      cardSchemaFields,
       collections,
       currentCollection,
       currentCollectionId,

@@ -9,7 +9,10 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from AnkiDeckBuilder.AppConfig import (
+    CardSchemaFields,
+    CardSchemas,
     DatabasePath,
+    DefaultSchemaKey,
     SupportedImageExtensions,
     SupportedVideoExtensions,
 )
@@ -79,6 +82,15 @@ GlobalCardColumnDefinitions = {
     "radical_position": "TEXT NOT NULL DEFAULT ''",
     "unique_key": "TEXT NOT NULL DEFAULT ''",
     "created_at": "REAL NOT NULL DEFAULT 0",
+}
+CustomCardSchemaColumnDefinitions = {
+    "owner_user_id": "TEXT NOT NULL DEFAULT ''",
+    "label": "TEXT NOT NULL DEFAULT ''",
+    "front_fields_json": "TEXT NOT NULL DEFAULT '[]'",
+    "back_fields_json": "TEXT NOT NULL DEFAULT '[]'",
+    "field_labels_json": "TEXT NOT NULL DEFAULT '{}'",
+    "created_at": "REAL NOT NULL DEFAULT 0",
+    "updated_at": "REAL NOT NULL DEFAULT 0",
 }
 AiScenarioColumnDefinitions = {
     "owner_user_id": "TEXT NOT NULL DEFAULT ''",
@@ -339,6 +351,27 @@ def EnsureDatabaseSchema(connection: sqlite3.Connection) -> None:
     EnsureGlobalCardsTableColumns(connection)
     connection.execute(
         """
+        CREATE TABLE IF NOT EXISTS custom_card_schemas (
+            id TEXT PRIMARY KEY,
+            owner_user_id TEXT NOT NULL DEFAULT '',
+            label TEXT NOT NULL DEFAULT '',
+            front_fields_json TEXT NOT NULL DEFAULT '[]',
+            back_fields_json TEXT NOT NULL DEFAULT '[]',
+            field_labels_json TEXT NOT NULL DEFAULT '{}',
+            created_at REAL NOT NULL DEFAULT 0,
+            updated_at REAL NOT NULL DEFAULT 0
+        )
+        """
+    )
+    EnsureCustomCardSchemasTableColumns(connection)
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_custom_card_schemas_owner
+        ON custom_card_schemas(owner_user_id, created_at)
+        """
+    )
+    connection.execute(
+        """
         CREATE TABLE IF NOT EXISTS ai_scenarios (
             id TEXT PRIMARY KEY,
             deck_id TEXT NOT NULL DEFAULT '',
@@ -444,6 +477,16 @@ def EnsureGlobalCardsTableColumns(connection: sqlite3.Connection) -> None:
         if columnName in existingColumns:
             continue
         connection.execute(f"ALTER TABLE global_cards ADD COLUMN {columnName} {definition}")
+
+
+def EnsureCustomCardSchemasTableColumns(connection: sqlite3.Connection) -> None:
+    existingColumns = {
+        row["name"] for row in connection.execute("PRAGMA table_info(custom_card_schemas)").fetchall()
+    }
+    for columnName, definition in CustomCardSchemaColumnDefinitions.items():
+        if columnName in existingColumns:
+            continue
+        connection.execute(f"ALTER TABLE custom_card_schemas ADD COLUMN {columnName} {definition}")
 
 
 def EnsureUsersTableColumns(connection: sqlite3.Connection) -> None:
@@ -585,6 +628,298 @@ def DecodeJsonObject(raw: str) -> Dict[str, Any]:
     if not isinstance(parsed, dict):
         return {}
     return dict(parsed)
+
+
+def BuildBuiltinCardSchemaDefinition(schemaKey: str, definition: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "Key": schemaKey,
+        "Label": (definition.get("Label") or schemaKey).strip(),
+        "FrontFields": NormalizeCardSchemaFields(definition.get("FrontFields", [])),
+        "BackFields": NormalizeCardSchemaFields(definition.get("BackFields", [])),
+        "FieldLabels": NormalizeCardSchemaFieldLabels(definition.get("FieldLabels", {})),
+        "IsBuiltin": True,
+    }
+
+
+def NormalizeCardSchemaFields(values: List[Any]) -> List[str]:
+    allowedFields = set(CardSchemaFields.keys())
+    normalizedFields: List[str] = []
+    for rawValue in values or []:
+        fieldName = str(rawValue or "").strip()
+        if not fieldName or fieldName in normalizedFields:
+            continue
+        if fieldName not in allowedFields:
+            raise ValueError(f"Unsupported card schema field: {fieldName}")
+        normalizedFields.append(fieldName)
+    return normalizedFields
+
+
+def NormalizeCardSchemaFieldLabels(values: Dict[str, Any]) -> Dict[str, str]:
+    if not isinstance(values, dict):
+        return {}
+    allowedFields = set(CardSchemaFields.keys())
+    labels: Dict[str, str] = {}
+    for rawFieldName, rawLabel in values.items():
+        fieldName = str(rawFieldName or "").strip()
+        if fieldName not in allowedFields:
+            continue
+        label = str(rawLabel or "").strip()
+        if not label:
+            continue
+        labels[fieldName] = label
+    return labels
+
+
+def ValidateCardSchemaShape(frontFields: List[str], backFields: List[str]) -> None:
+    if not frontFields:
+        raise ValueError("Select at least one front field.")
+    if not backFields:
+        raise ValueError("Select at least one back field.")
+    selectedFields = set(frontFields + backFields)
+    for requiredField in ("kanji", "english"):
+        if requiredField not in selectedFields:
+            label = CardSchemaFields[requiredField]["Label"]
+            raise ValueError(f"Custom schemas must include {label}.")
+
+
+def BuildCustomCardSchemaKey(connection: sqlite3.Connection, label: str) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "_", (label or "").strip().lower()).strip("_")
+    slug = slug[:36].strip("_") or "schema"
+    while True:
+        candidate = f"custom_{slug}_{secrets.token_hex(4)}"
+        if candidate in CardSchemas:
+            continue
+        row = connection.execute(
+            "SELECT 1 FROM custom_card_schemas WHERE id = ? LIMIT 1",
+            (candidate,),
+        ).fetchone()
+        if row is None:
+            return candidate
+
+
+def SerializeCardSchemaDefinition(schemaKey: str, definition: Dict[str, Any]) -> Dict[str, Any]:
+    frontFields = NormalizeCardSchemaFields(definition.get("FrontFields", []))
+    backFields = NormalizeCardSchemaFields(definition.get("BackFields", []))
+    return {
+        "key": schemaKey,
+        "label": (definition.get("Label") or schemaKey).strip(),
+        "front_fields": frontFields,
+        "back_fields": backFields,
+        "field_labels": NormalizeCardSchemaFieldLabels(definition.get("FieldLabels", {})),
+        "is_builtin": bool(definition.get("IsBuiltin")),
+    }
+
+
+def BuildCustomCardSchemaDefinition(row: sqlite3.Row) -> Dict[str, Any]:
+    frontFields = NormalizeCardSchemaFields(DecodeJsonStringList(row["front_fields_json"]))
+    backFields = NormalizeCardSchemaFields(DecodeJsonStringList(row["back_fields_json"]))
+    fieldLabels = NormalizeCardSchemaFieldLabels(DecodeJsonObject(row["field_labels_json"]))
+    return {
+        "Key": row["id"],
+        "Label": (row["label"] or row["id"]).strip(),
+        "FrontFields": frontFields,
+        "BackFields": backFields,
+        "FieldLabels": fieldLabels,
+        "IsBuiltin": False,
+        "OwnerUserId": (row["owner_user_id"] or "").strip(),
+    }
+
+
+def ListCardSchemaDefinitions(connection: sqlite3.Connection, ownerUserId: str = "") -> List[Dict[str, Any]]:
+    definitions = [
+        BuildBuiltinCardSchemaDefinition(schemaKey, definition)
+        for schemaKey, definition in CardSchemas.items()
+    ]
+    normalizedOwnerUserId = (ownerUserId or "").strip()
+    if normalizedOwnerUserId:
+        rows = connection.execute(
+            """
+            SELECT *
+            FROM custom_card_schemas
+            WHERE owner_user_id = ?
+            ORDER BY created_at ASC, label ASC
+            """,
+            (normalizedOwnerUserId,),
+        ).fetchall()
+        definitions.extend(BuildCustomCardSchemaDefinition(row) for row in rows)
+    return definitions
+
+
+def ListCardSchemaOptions(connection: sqlite3.Connection, ownerUserId: str = "") -> List[Dict[str, Any]]:
+    return [
+        SerializeCardSchemaDefinition(definition["Key"], definition)
+        for definition in ListCardSchemaDefinitions(connection, ownerUserId)
+    ]
+
+
+def GetCustomCardSchemaRow(connection: sqlite3.Connection, schemaKey: str) -> Optional[sqlite3.Row]:
+    normalizedSchemaKey = (schemaKey or "").strip()
+    if not normalizedSchemaKey:
+        return None
+    return connection.execute(
+        "SELECT * FROM custom_card_schemas WHERE id = ? LIMIT 1",
+        (normalizedSchemaKey,),
+    ).fetchone()
+
+
+def GetCardSchemaDefinition(connection: sqlite3.Connection, schemaKey: str) -> Optional[Dict[str, Any]]:
+    normalizedSchemaKey = (schemaKey or "").strip()
+    if normalizedSchemaKey in CardSchemas:
+        return BuildBuiltinCardSchemaDefinition(normalizedSchemaKey, CardSchemas[normalizedSchemaKey])
+
+    row = GetCustomCardSchemaRow(connection, normalizedSchemaKey)
+    if row is None:
+        return None
+    return BuildCustomCardSchemaDefinition(row)
+
+
+def ResolveCardSchemaDefinition(connection: sqlite3.Connection, schemaKey: str) -> Dict[str, Any]:
+    definition = GetCardSchemaDefinition(connection, schemaKey)
+    if definition is not None:
+        return definition
+    return {
+        **BuildBuiltinCardSchemaDefinition(DefaultSchemaKey, CardSchemas[DefaultSchemaKey]),
+        "Key": (schemaKey or "").strip() or DefaultSchemaKey,
+        "Label": (schemaKey or "").strip() or CardSchemas[DefaultSchemaKey]["Label"],
+    }
+
+
+def CardSchemaUsesField(connection: sqlite3.Connection, schemaKey: str, fieldName: str) -> bool:
+    definition = ResolveCardSchemaDefinition(connection, schemaKey)
+    return fieldName in set(definition["FrontFields"] + definition["BackFields"])
+
+
+def CreateCustomCardSchema(
+    connection: sqlite3.Connection,
+    ownerUserId: str,
+    label: str,
+    frontFields: List[Any],
+    backFields: List[Any],
+    fieldLabels: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    normalizedOwnerUserId = (ownerUserId or "").strip()
+    normalizedLabel = (label or "").strip()
+    if not normalizedOwnerUserId:
+        raise ValueError("owner_user_id is required.")
+    if not normalizedLabel:
+        raise ValueError("Schema name is required.")
+
+    normalizedFrontFields = NormalizeCardSchemaFields(frontFields)
+    normalizedBackFields = NormalizeCardSchemaFields(backFields)
+    ValidateCardSchemaShape(normalizedFrontFields, normalizedBackFields)
+    normalizedFieldLabels = NormalizeCardSchemaFieldLabels(fieldLabels or {})
+    schemaKey = BuildCustomCardSchemaKey(connection, normalizedLabel)
+    now = time.time()
+
+    connection.execute(
+        """
+        INSERT INTO custom_card_schemas (
+            id, owner_user_id, label, front_fields_json, back_fields_json,
+            field_labels_json, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            schemaKey,
+            normalizedOwnerUserId,
+            normalizedLabel,
+            json.dumps(normalizedFrontFields, ensure_ascii=False),
+            json.dumps(normalizedBackFields, ensure_ascii=False),
+            json.dumps(normalizedFieldLabels, ensure_ascii=False),
+            now,
+            now,
+        ),
+    )
+    connection.commit()
+    definition = GetCardSchemaDefinition(connection, schemaKey)
+    return SerializeCardSchemaDefinition(schemaKey, definition or {})
+
+
+def UpdateCustomCardSchema(
+    connection: sqlite3.Connection,
+    ownerUserId: str,
+    schemaKey: str,
+    label: str,
+    frontFields: List[Any],
+    backFields: List[Any],
+    fieldLabels: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    normalizedOwnerUserId = (ownerUserId or "").strip()
+    normalizedSchemaKey = (schemaKey or "").strip()
+    normalizedLabel = (label or "").strip()
+    if not normalizedOwnerUserId:
+        raise ValueError("owner_user_id is required.")
+    if not normalizedSchemaKey:
+        raise ValueError("schema_key is required.")
+    if normalizedSchemaKey in CardSchemas:
+        raise ValueError("Built-in schemas cannot be edited.")
+    if not normalizedLabel:
+        raise ValueError("Schema name is required.")
+
+    existing = connection.execute(
+        """
+        SELECT 1
+        FROM custom_card_schemas
+        WHERE id = ? AND owner_user_id = ?
+        LIMIT 1
+        """,
+        (normalizedSchemaKey, normalizedOwnerUserId),
+    ).fetchone()
+    if existing is None:
+        raise ValueError("Custom schema not found.")
+
+    normalizedFrontFields = NormalizeCardSchemaFields(frontFields)
+    normalizedBackFields = NormalizeCardSchemaFields(backFields)
+    ValidateCardSchemaShape(normalizedFrontFields, normalizedBackFields)
+    normalizedFieldLabels = NormalizeCardSchemaFieldLabels(fieldLabels or {})
+
+    connection.execute(
+        """
+        UPDATE custom_card_schemas
+        SET label = ?,
+            front_fields_json = ?,
+            back_fields_json = ?,
+            field_labels_json = ?,
+            updated_at = ?
+        WHERE id = ? AND owner_user_id = ?
+        """,
+        (
+            normalizedLabel,
+            json.dumps(normalizedFrontFields, ensure_ascii=False),
+            json.dumps(normalizedBackFields, ensure_ascii=False),
+            json.dumps(normalizedFieldLabels, ensure_ascii=False),
+            time.time(),
+            normalizedSchemaKey,
+            normalizedOwnerUserId,
+        ),
+    )
+    connection.commit()
+    definition = GetCardSchemaDefinition(connection, normalizedSchemaKey)
+    return SerializeCardSchemaDefinition(normalizedSchemaKey, definition or {})
+
+
+def DeleteCustomCardSchema(connection: sqlite3.Connection, ownerUserId: str, schemaKey: str) -> bool:
+    normalizedOwnerUserId = (ownerUserId or "").strip()
+    normalizedSchemaKey = (schemaKey or "").strip()
+    if not normalizedOwnerUserId:
+        raise ValueError("owner_user_id is required.")
+    if normalizedSchemaKey in CardSchemas:
+        raise ValueError("Built-in schemas cannot be deleted.")
+    if not normalizedSchemaKey:
+        raise ValueError("schema_key is required.")
+
+    inUse = connection.execute(
+        "SELECT 1 FROM cards WHERE schema_key = ? LIMIT 1",
+        (normalizedSchemaKey,),
+    ).fetchone()
+    if inUse is not None:
+        raise ValueError("This schema is still used by one or more cards.")
+
+    cursor = connection.execute(
+        "DELETE FROM custom_card_schemas WHERE id = ? AND owner_user_id = ?",
+        (normalizedSchemaKey, normalizedOwnerUserId),
+    )
+    connection.commit()
+    return cursor.rowcount > 0
 
 
 def NormalizeEmail(value: str) -> str:
@@ -1090,7 +1425,7 @@ def GetDeckCardCounts(connection: sqlite3.Connection, ownerUserId: str) -> Dict[
 
 
 def AddCard(connection: sqlite3.Connection, deckId: str, card: Dict[str, Any]) -> bool:
-    schemaKey = card.get("schema_key") or "kana_kanji_front_english_back"
+    schemaKey = card.get("schema_key") or DefaultSchemaKey
     kanji = (card.get("kanji") or "").strip()
     kana = (card.get("kana") or "").strip()
     english = (card.get("english") or "").strip()
@@ -1510,7 +1845,7 @@ def BuildDeckCardPayloadFromGlobalCard(
         "english": (globalCard["english"] or "").strip(),
         "notes": (globalCard["notes"] or "").strip(),
         "source_text": f"global:{globalCard['id']}",
-        "schema_key": (schemaKey or "").strip() or "kana_kanji_front_english_back",
+        "schema_key": (schemaKey or "").strip() or DefaultSchemaKey,
         "media_type": mediaType,
         "media_files": mediaFiles,
         "tags": tags,
@@ -1537,7 +1872,8 @@ def ImportDeckCardsToGlobal(connection: sqlite3.Connection, deckId: str, ownerUs
         sourceWordForm = (card["word_form"] or "dictionary").strip() or "dictionary"
         baseKanji = (card["dictionary_headword"] or "").strip() or (card["kanji"] or "").strip()
         baseKana = (card["dictionary_reading"] or "").strip() or (card["kana"] or "").strip()
-        if not baseKanji or (not baseKana and (card["schema_key"] or "").strip() != "kanji_detail_front_back"):
+        schemaKey = (card["schema_key"] or "").strip() or DefaultSchemaKey
+        if not baseKanji or (not baseKana and CardSchemaUsesField(connection, schemaKey, "kana")):
             skipped += 1
             continue
 
@@ -1627,7 +1963,7 @@ def ImportGlobalCardsToDeck(
             requestedWordForm,
             extraTags=extraTags or [],
         )
-        requiresKana = (schemaKey or "").strip() != "kanji_detail_front_back"
+        requiresKana = CardSchemaUsesField(connection, schemaKey, "kana")
         if not (deckCard.get("kanji") or "").strip() or (
             requiresKana and not (deckCard.get("kana") or "").strip()
         ):
@@ -1659,7 +1995,7 @@ def UpdateCardContent(
     normalizedKana = (kana or "").strip()
     normalizedEnglish = (english or "").strip()
     normalizedNotes = (notes or "").strip()
-    normalizedSchemaKey = (schemaKey or "").strip() or "kana_kanji_front_english_back"
+    normalizedSchemaKey = (schemaKey or "").strip() or DefaultSchemaKey
     normalizedKanjiOnReadings = (kanjiOnReadings or "").strip()
     normalizedKanjiKunReadings = (kanjiKunReadings or "").strip()
     normalizedKanjiNanoriReadings = (kanjiNanoriReadings or "").strip()
@@ -1845,7 +2181,7 @@ def DeckNameToId(connection: sqlite3.Connection, collectionName: str, deckName: 
 
 
 def DeckHasCandidate(connection: sqlite3.Connection, deckId: str, card: Dict[str, Any]) -> bool:
-    schemaKey = card.get("schema_key") or "kana_kanji_front_english_back"
+    schemaKey = card.get("schema_key") or DefaultSchemaKey
     kanji = card.get("kanji", "")
     kana = card.get("kana", "")
     return CardWordExistsInSchema(connection, deckId, schemaKey, kanji, kana)
@@ -1874,7 +2210,7 @@ def DeckHasKanjiWordForm(
         """,
         (
             deckId,
-            (schemaKey or "").strip() or "kana_kanji_front_english_back",
+            (schemaKey or "").strip() or DefaultSchemaKey,
             (wordForm or "dictionary").strip() or "dictionary",
             normalizedKanji,
         ),

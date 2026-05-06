@@ -8,6 +8,16 @@ export interface StatusMessage {
 export interface CardSchemaOption {
   key: string;
   label: string;
+  front_fields: string[];
+  back_fields: string[];
+  field_labels: Record<string, string>;
+  is_builtin: boolean;
+}
+
+export interface CardSchemaFieldOption {
+  key: string;
+  label: string;
+  placeholder: string;
 }
 
 export interface VerbFormOption {
@@ -97,6 +107,7 @@ export interface PracticeModeOption {
 
 export interface BootstrapPayload {
   app_title: string;
+  card_schema_fields: CardSchemaFieldOption[];
   card_schemas: CardSchemaOption[];
   verb_forms: VerbFormOption[];
   verb_types: VerbTypeOption[];

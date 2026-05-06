@@ -27,8 +27,9 @@ from dotenv import load_dotenv
 
 from AnkiDeckBuilder.AppConfig import (
     AppTitle,
-    CardSchemas,
+    CardSchemaFields,
     DefaultModel,
+    DefaultSchemaKey,
     MediaDir,
     RadicalPositionOptions,
     SupportedAudioExtensions,
@@ -49,12 +50,14 @@ from AnkiDeckBuilder.DatabaseService import (
     CreateDeckInvite,
     CreateConversationSession,
     CreateCollection,
+    CreateCustomCardSchema,
     CreateDeck,
     CreateUser,
     CreateUserSession,
     DeckHasCandidate,
     DeckHasKanjiWordForm,
     DecodeJsonStringList,
+    DeleteCustomCardSchema,
     DeleteCollection,
     DeleteCardsByIds,
     DeleteDeck,
@@ -63,6 +66,7 @@ from AnkiDeckBuilder.DatabaseService import (
     GetDashboardRows,
     GetAiScenario,
     GetConversationSession,
+    GetCardSchemaDefinition,
     GetDeckCardCounts,
     GetDeckAccessRow,
     GetDeckCards,
@@ -75,6 +79,7 @@ from AnkiDeckBuilder.DatabaseService import (
     IncrementAiScenarioUsage,
     ImportDeckCardsToGlobal,
     ImportGlobalCardsToDeck,
+    ListCardSchemaOptions,
     ListAiScenarios,
     ListCollections,
     ListDeckCollaborators,
@@ -90,6 +95,7 @@ from AnkiDeckBuilder.DatabaseService import (
     SaveAiScenario,
     SaveReadingMaterial,
     SerializeUserRow,
+    ResolveCardSchemaDefinition,
     UpdateUserPassword,
     UpdateUserPermissions,
     UpdateConversationSession,
@@ -97,6 +103,7 @@ from AnkiDeckBuilder.DatabaseService import (
     UpdateCardField,
     UpdateCardMedia,
     UpdateCardsSchemaByIds,
+    UpdateCustomCardSchema,
 )
 from AnkiDeckBuilder.ExportService import ExportDeckPackage
 from AnkiDeckBuilder.JamdictService import (
@@ -318,7 +325,7 @@ def require_accessible_deck(deck_id: str, require_write: bool = True) -> sqlite3
 
 def build_bootstrap_defaults() -> Dict[str, Any]:
     return {
-        "schema_key": "kana_kanji_front_english_back",
+        "schema_key": DefaultSchemaKey,
         "word_form": "dictionary",
         "practice_modes": PRACTICE_MODE_OPTIONS,
     }
@@ -345,6 +352,18 @@ def parse_tags(value: Any) -> List[str]:
     if isinstance(value, list):
         return normalize_string_list(value)
     return ParseCommaSeparatedTags(normalize_text(value))
+
+
+def get_schema_definition(schema_key: str) -> Dict[str, Any]:
+    return ResolveCardSchemaDefinition(get_connection(), normalize_text(schema_key) or DefaultSchemaKey)
+
+
+def require_card_schema(schema_key: str) -> Dict[str, Any]:
+    normalized_schema_key = normalize_text(schema_key) or DefaultSchemaKey
+    definition = GetCardSchemaDefinition(get_connection(), normalized_schema_key)
+    if definition is None:
+        raise RuntimeError("Selected card schema does not exist.")
+    return definition
 
 
 def get_card_text(card: Any, field_name: str) -> str:
@@ -543,7 +562,7 @@ def build_card_face_text(card: Any, field_names: List[str]) -> str:
         if field_name == "radical_position" and text in RadicalPositionOptions:
             text = RadicalPositionOptions[text]["Label"]
         if text and text not in values:
-            label = CardSchemas.get(get_card_text(card, "schema_key"), {}).get("FieldLabels", {}).get(field_name, "")
+            label = get_schema_definition(get_card_text(card, "schema_key")).get("FieldLabels", {}).get(field_name, "")
             values.append(f"{label}: {text}" if label else text)
     return " | ".join(values)
 
@@ -1036,8 +1055,8 @@ def serialize_global_card(row: sqlite3.Row) -> Dict[str, Any]:
 
 
 def serialize_deck_card(card: sqlite3.Row, index: int) -> Dict[str, Any]:
-    schema_key = normalize_text(card["schema_key"]) or "kana_kanji_front_english_back"
-    schema_label = CardSchemas.get(schema_key, {}).get("Label", schema_key)
+    schema_key = normalize_text(card["schema_key"]) or DefaultSchemaKey
+    schema_label = get_schema_definition(schema_key).get("Label", schema_key)
     return {
         "id": card["id"],
         "index": index,
@@ -1094,7 +1113,15 @@ def action_bootstrap(_: Dict[str, Any]) -> Dict[str, Any]:
 
     base_payload = {
         "app_title": AppTitle,
-        "card_schemas": [{"key": key, "label": definition["Label"]} for key, definition in CardSchemas.items()],
+        "card_schema_fields": [
+            {
+                "key": key,
+                "label": definition["Label"],
+                "placeholder": definition.get("Placeholder", ""),
+            }
+            for key, definition in CardSchemaFields.items()
+        ],
+        "card_schemas": ListCardSchemaOptions(connection, normalize_text(user.get("id", "")) if user else ""),
         "verb_forms": [{"key": key, "label": label} for key, label in VerbFormLabels.items()],
         "verb_types": [
             {"key": "other", "label": "Non-verb / Other"},
@@ -1420,7 +1447,7 @@ def action_add_dictionary_entries(payload: Dict[str, Any]) -> Dict[str, Any]:
     entry_ids = normalize_string_list(payload.get("entry_ids", []))
     destination = normalize_text(payload.get("destination", "global")) or "global"
     deck_id = normalize_text(payload.get("deck_id", ""))
-    schema_key = normalize_text(payload.get("schema_key", "")) or "kana_kanji_front_english_back"
+    schema_key = normalize_text(payload.get("schema_key", "")) or DefaultSchemaKey
     word_form = normalize_text(payload.get("word_form", "")) or "dictionary"
     tags = parse_tags(payload.get("tags", []))
     notes = normalize_text(payload.get("notes", ""))
@@ -1432,6 +1459,7 @@ def action_add_dictionary_entries(payload: Dict[str, Any]) -> Dict[str, Any]:
         raise RuntimeError("deck_id is required when destination is deck.")
     if destination == "deck":
         require_accessible_deck(deck_id, require_write=True)
+        require_card_schema(schema_key)
 
     connection = get_connection()
     user_id = get_request_user_id()
@@ -1483,7 +1511,7 @@ def action_quick_add_dictionary_entry(payload: Dict[str, Any]) -> Dict[str, Any]
             "entry_ids": [normalize_text(payload.get("entry_id", ""))],
             "destination": payload.get("destination", "global"),
             "deck_id": payload.get("deck_id", ""),
-            "schema_key": payload.get("schema_key", "kana_kanji_front_english_back"),
+            "schema_key": payload.get("schema_key", DefaultSchemaKey),
             "word_form": payload.get("word_form", "dictionary"),
             "tags": payload.get("tags", []),
             "notes": payload.get("notes", ""),
@@ -1509,12 +1537,46 @@ def action_build_word_forms(payload: Dict[str, Any]) -> Dict[str, Any]:
     return {"word_kind": word_kind, "forms": forms}
 
 
+def action_create_card_schema(payload: Dict[str, Any]) -> Dict[str, Any]:
+    schema = CreateCustomCardSchema(
+        get_connection(),
+        get_request_user_id(),
+        normalize_text(payload.get("label", "")),
+        payload.get("front_fields", []),
+        payload.get("back_fields", []),
+        payload.get("field_labels", {}),
+    )
+    return {"schema": schema}
+
+
+def action_update_card_schema(payload: Dict[str, Any]) -> Dict[str, Any]:
+    schema = UpdateCustomCardSchema(
+        get_connection(),
+        get_request_user_id(),
+        normalize_text(payload.get("schema_key", "")),
+        normalize_text(payload.get("label", "")),
+        payload.get("front_fields", []),
+        payload.get("back_fields", []),
+        payload.get("field_labels", {}),
+    )
+    return {"schema": schema}
+
+
+def action_delete_card_schema(payload: Dict[str, Any]) -> Dict[str, Any]:
+    schema_key = normalize_text(payload.get("schema_key", ""))
+    deleted = DeleteCustomCardSchema(get_connection(), get_request_user_id(), schema_key)
+    return {"deleted": bool(deleted), "schema_key": schema_key}
+
+
 def action_add_manual_card(payload: Dict[str, Any]) -> Dict[str, Any]:
     destination = normalize_text(payload.get("destination", "global")) or "global"
     deck_id = normalize_text(payload.get("deck_id", ""))
-    schema_key = normalize_text(payload.get("schema_key", "")) or "kana_kanji_front_english_back"
+    schema_key = normalize_text(payload.get("schema_key", "")) or DefaultSchemaKey
     word_form = normalize_text(payload.get("word_form", "")) or "dictionary"
     word_kind = normalize_text(payload.get("word_kind", "noun")) or "noun"
+    schema_definition = require_card_schema(schema_key)
+    schema_field_names = set(schema_definition["FrontFields"] + schema_definition["BackFields"])
+    schema_requires_kana = "kana" in schema_field_names
 
     kanji = normalize_text(payload.get("kanji", ""))
     kana = normalize_text(payload.get("kana", ""))
@@ -1526,11 +1588,10 @@ def action_add_manual_card(payload: Dict[str, Any]) -> Dict[str, Any]:
     kanji_kun_readings = normalize_text(payload.get("kanji_kun_readings", ""))
     kanji_nanori_readings = normalize_text(payload.get("kanji_nanori_readings", ""))
     radical_position = normalize_text(payload.get("radical_position", ""))
-    is_kanji_detail_schema = schema_key == "kanji_detail_front_back"
 
-    if not kanji or not english or (not is_kanji_detail_schema and not kana):
+    if not kanji or not english or (schema_requires_kana and not kana):
         raise RuntimeError(
-            "kanji and english are required. Kana is also required unless the Kanji detail format is selected."
+            "Kanji and English are required. Kana is also required when the selected schema uses it."
         )
     if destination == "deck" and not deck_id:
         raise RuntimeError("deck_id is required when destination is deck.")
@@ -1686,7 +1747,7 @@ def action_delete_global_cards(payload: Dict[str, Any]) -> Dict[str, Any]:
 def action_import_global_to_deck(payload: Dict[str, Any]) -> Dict[str, Any]:
     deck_id = normalize_text(payload.get("deck_id", ""))
     ids = normalize_string_list(payload.get("global_card_ids", []))
-    schema_key = normalize_text(payload.get("schema_key", "")) or "kana_kanji_front_english_back"
+    schema_key = normalize_text(payload.get("schema_key", "")) or DefaultSchemaKey
     word_form = normalize_text(payload.get("word_form", "")) or "dictionary"
     tags = parse_tags(payload.get("tags", []))
     if not deck_id:
@@ -1694,6 +1755,7 @@ def action_import_global_to_deck(payload: Dict[str, Any]) -> Dict[str, Any]:
     if not ids:
         raise RuntimeError("Select one or more global cards first.")
     require_accessible_deck(deck_id, require_write=True)
+    require_card_schema(schema_key)
     added, skipped = ImportGlobalCardsToDeck(
         get_connection(),
         deck_id,
@@ -1724,12 +1786,13 @@ def action_list_deck_cards(payload: Dict[str, Any]) -> Dict[str, Any]:
 def action_bulk_update_card_schema(payload: Dict[str, Any]) -> Dict[str, Any]:
     deck_id = normalize_text(payload.get("deck_id", ""))
     card_ids = normalize_string_list(payload.get("card_ids", []))
-    schema_key = normalize_text(payload.get("schema_key", "")) or "kana_kanji_front_english_back"
+    schema_key = normalize_text(payload.get("schema_key", "")) or DefaultSchemaKey
     if not deck_id:
         raise RuntimeError("deck_id is required.")
     if not card_ids:
         raise RuntimeError("Select one or more cards first.")
     require_accessible_deck(deck_id, require_write=True)
+    require_card_schema(schema_key)
     updated = UpdateCardsSchemaByIds(get_connection(), deck_id, card_ids, schema_key)
     return {
         "updated": int(updated),
@@ -1752,9 +1815,11 @@ def action_delete_deck_cards(payload: Dict[str, Any]) -> Dict[str, Any]:
 def action_update_card(payload: Dict[str, Any]) -> Dict[str, Any]:
     deck_id = normalize_text(payload.get("deck_id", ""))
     card_id = normalize_text(payload.get("card_id", ""))
+    schema_key = normalize_text(payload.get("schema_key", "")) or DefaultSchemaKey
     if not deck_id or not card_id:
         raise RuntimeError("deck_id and card_id are required.")
     require_accessible_deck(deck_id, require_write=True)
+    require_card_schema(schema_key)
     updated = UpdateCardContent(
         get_connection(),
         deck_id,
@@ -1763,7 +1828,7 @@ def action_update_card(payload: Dict[str, Any]) -> Dict[str, Any]:
         normalize_text(payload.get("kana", "")),
         normalize_text(payload.get("english", "")),
         normalize_text(payload.get("notes", "")),
-        normalize_text(payload.get("schema_key", "")) or "kana_kanji_front_english_back",
+        schema_key,
         normalize_text(payload.get("kanji_on_readings", "")),
         normalize_text(payload.get("kanji_kun_readings", "")),
         normalize_text(payload.get("kanji_nanori_readings", "")),
@@ -1802,7 +1867,7 @@ def action_replace_card_media(payload: Dict[str, Any]) -> Dict[str, Any]:
 def action_scan_images(payload: Dict[str, Any]) -> Dict[str, Any]:
     deck_id = normalize_text(payload.get("deck_id", ""))
     image_paths = normalize_string_list(payload.get("image_paths", []))
-    scan_schema_key = normalize_text(payload.get("schema_key", "")) or "kana_kanji_front_english_back"
+    scan_schema_key = normalize_text(payload.get("schema_key", "")) or DefaultSchemaKey
     scan_word_form = normalize_text(payload.get("word_form", "")) or "dictionary"
     scan_tags = parse_tags(payload.get("tags", []))
 
@@ -1812,6 +1877,7 @@ def action_scan_images(payload: Dict[str, Any]) -> Dict[str, Any]:
         raise RuntimeError("Select one or more image files first.")
     require_accessible_deck(deck_id, require_write=True)
     require_ocr_user()
+    require_card_schema(scan_schema_key)
 
     upload_adapters = [read_local_file(path) for path in image_paths]
     connection = get_connection()
@@ -1952,8 +2018,8 @@ def action_get_revision_cards(payload: Dict[str, Any]) -> Dict[str, Any]:
 
     rows: List[Dict[str, Any]] = []
     for card in GetDeckCards(get_connection(), deck_id):
-        schema_key = normalize_text(card["schema_key"]) or "kana_kanji_front_english_back"
-        schema = CardSchemas.get(schema_key, {})
+        schema_key = normalize_text(card["schema_key"]) or DefaultSchemaKey
+        schema = get_schema_definition(schema_key)
         front_fields = schema.get("FrontFields", ["kana", "kanji"])
         back_fields = schema.get("BackFields", ["english"])
         front_text = build_card_face_text(card, front_fields) or build_card_face_text(card, ["kana", "kanji"])
@@ -1964,7 +2030,7 @@ def action_get_revision_cards(payload: Dict[str, Any]) -> Dict[str, Any]:
                 "front": front_text,
                 "back": back_text,
                 "notes": normalize_text(card["notes"]),
-                "schema_label": CardSchemas.get(schema_key, {}).get("Label", schema_key),
+                "schema_label": schema.get("Label", schema_key),
                 "word_form": normalize_text(card["word_form"]) or "dictionary",
             }
         )
@@ -2894,7 +2960,7 @@ def action_add_reading_new_word(payload: Dict[str, Any]) -> Dict[str, Any]:
                 deck_id,
                 BuildCardFromDictionaryEntry(
                     resolved_entry,
-                    "kana_kanji_front_english_back",
+                    DefaultSchemaKey,
                     "dictionary",
                     tags,
                     notes,
@@ -2946,7 +3012,7 @@ def action_add_reading_new_word(payload: Dict[str, Any]) -> Dict[str, Any]:
                 "english": meaning,
                 "notes": notes,
                 "source_text": "reading_comprehension",
-                "schema_key": "kana_kanji_front_english_back",
+                "schema_key": DefaultSchemaKey,
                 "media_type": "none",
                 "media_files": [],
                 "tags": tags,
@@ -3002,6 +3068,9 @@ ACTIONS = {
     "add_dictionary_entries": action_add_dictionary_entries,
     "quick_add_dictionary_entry": action_quick_add_dictionary_entry,
     "build_word_forms": action_build_word_forms,
+    "create_card_schema": action_create_card_schema,
+    "update_card_schema": action_update_card_schema,
+    "delete_card_schema": action_delete_card_schema,
     "add_manual_card": action_add_manual_card,
     "import_deck_to_global": action_import_deck_to_global,
     "list_global_cards": action_list_global_cards,

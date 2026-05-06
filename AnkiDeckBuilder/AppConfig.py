@@ -18,8 +18,21 @@ SupportedImageExtensions = {".png", ".jpg", ".jpeg", ".webp"}
 SupportedVideoExtensions = {".mp4", ".webm", ".mov"}
 SupportedAudioExtensions = {".mp3", ".wav", ".m4a", ".ogg"}
 
+DefaultSchemaKey = "kana_kanji_front_english_back"
+
+CardSchemaFields = {
+    "kanji": {"Label": "Kanji", "Placeholder": "食べる"},
+    "kana": {"Label": "Kana", "Placeholder": "たべる"},
+    "english": {"Label": "English", "Placeholder": "to eat"},
+    "kanji_on_readings": {"Label": "ON Reading", "Placeholder": "オン, いん"},
+    "kanji_kun_readings": {"Label": "Kun Reading", "Placeholder": "おと, ね"},
+    "kanji_nanori_readings": {"Label": "Nanori", "Placeholder": "Optional name reading"},
+    "radical_position": {"Label": "Radical Position", "Placeholder": ""},
+    "notes": {"Label": "Notes", "Placeholder": "Optional notes or mnemonic"},
+}
+
 CardSchemas = {
-    "kana_kanji_front_english_back": {
+    DefaultSchemaKey: {
         "Label": "Front: Hiragana/Katakana + Kanji | Back: English",
         "FrontFields": ["kana", "kanji"],
         "BackFields": ["english"],
