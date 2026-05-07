@@ -1,15 +1,18 @@
-import { FormEvent, useEffect, useState } from 'react';
+import { FormEvent, useEffect, useRef, useState } from 'react';
 import { useParams } from 'react-router';
 import {
   Loader2,
   MessageSquareText,
+  Mic,
+  MicOff,
+  PlayCircle,
   Plus,
   SendHorizonal,
   Sparkles,
   Square,
 } from 'lucide-react';
 import { useApp } from '../contexts/AppContext';
-import { callAction, errorMessage } from '../lib/backend';
+import { callAction, callActionWithFiles, errorMessage } from '../lib/backend';
 import type {
   AiScenarioRow,
   ConversationCompleteResponse,
@@ -33,6 +36,13 @@ const STYLE_OPTIONS = [
   { key: 'interview', label: 'Interview' },
 ];
 
+const VOICE_OPTIONS = [
+  { key: 'alloy', label: 'Alloy' },
+  { key: 'verse', label: 'Verse' },
+  { key: 'coral', label: 'Coral' },
+  { key: 'sage', label: 'Sage' },
+];
+
 function scenarioCardTone(active: boolean): string {
   if (active) {
     return 'app-select-card app-select-card-active';
@@ -42,6 +52,13 @@ function scenarioCardTone(active: boolean): string {
 
 function optionButtonClass(active: boolean): string {
   return active ? 'app-option app-option-active' : 'app-option';
+}
+
+function audioDataUrl(message: ConversationMessage): string {
+  if (!message.audio_base64) {
+    return '';
+  }
+  return `data:${message.audio_mime_type || 'audio/mpeg'};base64,${message.audio_base64}`;
 }
 
 export function Conversation() {
@@ -69,13 +86,34 @@ export function Conversation() {
   const [partnerName, setPartnerName] = useState('AI Partner');
   const [activeScenario, setActiveScenario] = useState<AiScenarioRow | null>(null);
   const [messages, setMessages] = useState<ConversationMessage[]>([]);
+  const [conversationMode, setConversationMode] = useState<'text' | 'voice'>('text');
+  const [voice, setVoice] = useState('alloy');
   const [messageInput, setMessageInput] = useState('');
   const [shouldWrapUp, setShouldWrapUp] = useState(false);
   const [feedback, setFeedback] = useState<ConversationFeedback | null>(null);
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordedAudio, setRecordedAudio] = useState<Blob | null>(null);
+  const [isSendingAudio, setIsSendingAudio] = useState(false);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
+  const audioChunksRef = useRef<BlobPart[]>([]);
 
   const deck = decks.find((item) => item.id === deckId) ?? null;
   const selectedScenario =
     scenarios.find((scenario) => scenario.id === selectedScenarioId) ?? null;
+
+  const playAudioBase64 = (audioBase64 = '', mimeType = 'audio/mpeg') => {
+    if (!audioBase64) {
+      return;
+    }
+    const audio = new Audio(`data:${mimeType};base64,${audioBase64}`);
+    void audio.play().catch(() => {
+      setStatus({
+        type: 'warning',
+        message: 'Audio playback was blocked by the browser. Use the replay button on the message.',
+      });
+    });
+  };
 
   const loadScenarios = async () => {
     if (!deckId) {
@@ -116,6 +154,13 @@ export function Conversation() {
     setCurrentDeck(deckId);
     void loadScenarios();
   }, [deckId, setCurrentDeck]);
+
+  useEffect(() => {
+    return () => {
+      mediaRecorderRef.current?.stop();
+      mediaStreamRef.current?.getTracks().forEach((track) => track.stop());
+    };
+  }, []);
 
   const generateSuggestedScenarios = async () => {
     if (!deckId) {
@@ -199,6 +244,8 @@ export function Conversation() {
         {
           deck_id: deckId,
           scenario_id: scenarioId,
+          spoken: conversationMode === 'voice',
+          voice,
         },
       );
       setSessionId(response.session_id);
@@ -206,9 +253,13 @@ export function Conversation() {
       setActiveScenario(response.scenario);
       setMessages(response.messages ?? []);
       setMessageInput('');
+      setRecordedAudio(null);
       setShouldWrapUp(false);
       setFeedback(null);
       setSelectedScenarioId(response.scenario.id);
+      if (conversationMode === 'voice') {
+        playAudioBase64(response.audio_base64, response.audio_mime_type);
+      }
       await loadScenarios();
       setStatus({
         type: 'success',
@@ -248,6 +299,97 @@ export function Conversation() {
       });
     } finally {
       setIsSendingMessage(false);
+    }
+  };
+
+  const startRecording = async () => {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setStatus({
+        type: 'error',
+        message: 'Audio recording is not available in this browser.',
+      });
+      return;
+    }
+
+    try {
+      setRecordedAudio(null);
+      audioChunksRef.current = [];
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaStreamRef.current = stream;
+      const recorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = recorder;
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+        }
+      };
+      recorder.onstop = () => {
+        const blob = new Blob(audioChunksRef.current, {
+          type: recorder.mimeType || 'audio/webm',
+        });
+        setRecordedAudio(blob);
+        setIsRecording(false);
+        mediaStreamRef.current?.getTracks().forEach((track) => track.stop());
+        mediaStreamRef.current = null;
+      };
+      recorder.start();
+      setIsRecording(true);
+    } catch (error) {
+      setIsRecording(false);
+      setStatus({
+        type: 'error',
+        message: errorMessage(error),
+      });
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current?.state === 'recording') {
+      mediaRecorderRef.current.stop();
+      return;
+    }
+    setIsRecording(false);
+  };
+
+  const sendRecordedAudio = async () => {
+    if (!sessionId || !recordedAudio) {
+      return;
+    }
+
+    try {
+      setIsSendingAudio(true);
+      const file = new File(
+        [recordedAudio],
+        recordedAudio.type.includes('mp4') ? 'conversation.m4a' : 'conversation.webm',
+        { type: recordedAudio.type || 'audio/webm' },
+      );
+      const response = await callActionWithFiles<ConversationSendResponse>(
+        'send_spoken_conversation_audio',
+        {
+          session_id: sessionId,
+          voice,
+        },
+        'audio_path',
+        [file],
+        'single',
+      );
+      setMessages(response.messages ?? []);
+      setShouldWrapUp(Boolean(response.should_wrap_up));
+      setRecordedAudio(null);
+      playAudioBase64(response.audio_base64, response.audio_mime_type);
+      setStatus({
+        type: 'success',
+        message: response.transcript
+          ? `Transcribed: ${response.transcript}`
+          : 'Audio message sent.',
+      });
+    } catch (error) {
+      setStatus({
+        type: 'error',
+        message: errorMessage(error),
+      });
+    } finally {
+      setIsSendingAudio(false);
     }
   };
 
@@ -522,6 +664,53 @@ export function Conversation() {
                   Topic focus: {selectedScenario.topic_hint}
                 </div>
               )}
+
+              <div className="mt-5 grid gap-4 border-t border-gray-200 pt-5 md:grid-cols-2">
+                <div>
+                  <div className="mb-2 text-sm font-medium text-gray-700">
+                    Conversation Mode
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setConversationMode('text')}
+                      className={optionButtonClass(conversationMode === 'text')}
+                    >
+                      Text
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setConversationMode('voice')}
+                      className={optionButtonClass(conversationMode === 'voice')}
+                    >
+                      Spoken
+                    </button>
+                  </div>
+                </div>
+
+                {conversationMode === 'voice' && (
+                  <div>
+                    <div className="mb-2 text-sm font-medium text-gray-700">
+                      AI Voice
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {VOICE_OPTIONS.map((option) => (
+                        <button
+                          key={option.key}
+                          type="button"
+                          onClick={() => setVoice(option.key)}
+                          className={optionButtonClass(voice === option.key)}
+                        >
+                          {option.label}
+                        </button>
+                      ))}
+                    </div>
+                    <div className="mt-2 text-xs text-gray-500">
+                      Spoken replies use an AI-generated voice.
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
           )}
 
@@ -581,8 +770,31 @@ export function Conversation() {
                           >
                             <div className="mb-1 text-[11px] font-semibold uppercase tracking-[0.2em] opacity-70">
                               {isAssistant ? partnerName : 'You'}
+                              {message.input_mode === 'voice' ? ' · voice' : ''}
                             </div>
                             <div className="whitespace-pre-wrap">{message.content}</div>
+                            {isAssistant && message.audio_base64 && (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  playAudioBase64(
+                                    message.audio_base64,
+                                    message.audio_mime_type,
+                                  )
+                                }
+                                className="mt-3 inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-white/80 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-white"
+                              >
+                                <PlayCircle className="h-4 w-4" />
+                                Replay audio
+                              </button>
+                            )}
+                            {isAssistant && message.audio_base64 && (
+                              <audio
+                                controls
+                                src={audioDataUrl(message)}
+                                className="mt-3 h-9 w-full max-w-xs"
+                              />
+                            )}
                           </div>
                         </div>
                       );
@@ -590,30 +802,91 @@ export function Conversation() {
                   </div>
                 </div>
 
-                <form onSubmit={handleSubmit} className="border-t border-gray-200 p-4">
-                  <div className="flex flex-col gap-3 sm:flex-row">
-                    <textarea
-                      value={messageInput}
-                      onChange={(event) => setMessageInput(event.target.value)}
-                      disabled={Boolean(feedback)}
-                      rows={3}
-                      placeholder="Type your reply in Japanese..."
-                      className="app-input min-h-[84px] flex-1 disabled:bg-gray-100"
-                    />
-                    <button
-                      type="submit"
-                      disabled={isSendingMessage || !messageInput.trim() || Boolean(feedback)}
-                      className="app-btn-primary self-end"
-                    >
-                      {isSendingMessage ? (
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                      ) : (
-                        <SendHorizonal className="w-4 h-4" />
-                      )}
-                      Send
-                    </button>
+                {conversationMode === 'voice' ? (
+                  <div className="border-t border-gray-200 p-4">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="text-sm text-gray-600">
+                        {isRecording
+                          ? 'Recording... speak your Japanese reply, then stop.'
+                          : recordedAudio
+                            ? 'Recording ready to send.'
+                            : 'Record a spoken reply, then send it for transcription.'}
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {!isRecording ? (
+                          <button
+                            type="button"
+                            onClick={() => void startRecording()}
+                            disabled={Boolean(feedback) || isSendingAudio}
+                            className="app-btn-secondary"
+                          >
+                            <Mic className="h-4 w-4" />
+                            Record
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={stopRecording}
+                            className="app-btn-secondary"
+                          >
+                            <MicOff className="h-4 w-4" />
+                            Stop
+                          </button>
+                        )}
+                        {recordedAudio && (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => setRecordedAudio(null)}
+                              disabled={isSendingAudio}
+                              className="app-btn-secondary"
+                            >
+                              Discard
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void sendRecordedAudio()}
+                              disabled={isSendingAudio || Boolean(feedback)}
+                              className="app-btn-primary"
+                            >
+                              {isSendingAudio ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : (
+                                <SendHorizonal className="h-4 w-4" />
+                              )}
+                              Send Audio
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    </div>
                   </div>
-                </form>
+                ) : (
+                  <form onSubmit={handleSubmit} className="border-t border-gray-200 p-4">
+                    <div className="flex flex-col gap-3 sm:flex-row">
+                      <textarea
+                        value={messageInput}
+                        onChange={(event) => setMessageInput(event.target.value)}
+                        disabled={Boolean(feedback)}
+                        rows={3}
+                        placeholder="Type your reply in Japanese..."
+                        className="app-input min-h-[84px] flex-1 disabled:bg-gray-100"
+                      />
+                      <button
+                        type="submit"
+                        disabled={isSendingMessage || !messageInput.trim() || Boolean(feedback)}
+                        className="app-btn-primary self-end"
+                      >
+                        {isSendingMessage ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <SendHorizonal className="w-4 h-4" />
+                        )}
+                        Send
+                      </button>
+                    </div>
+                  </form>
+                )}
               </div>
 
               {feedback && (

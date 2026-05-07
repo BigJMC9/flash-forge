@@ -132,7 +132,9 @@ from AnkiDeckBuilder.OpenAiService import (
     GenerateReadingQuestionsFromPassage,
     GenerateReadingComprehensionPackage,
     GenerateScenarioSuggestions,
+    GenerateSpeechAudio,
     GetOpenAiClient,
+    TranscribeAudioFile,
 )
 from AnkiDeckBuilder.Pages import (
     BuildScanCandidateNote,
@@ -335,6 +337,15 @@ def build_bootstrap_defaults() -> Dict[str, Any]:
 
 def normalize_text(value: Any) -> str:
     return str(value or "").strip()
+
+
+def truncate_ai_text(value: Any, max_chars: int) -> str:
+    text = normalize_text(value)
+    if max_chars <= 0:
+        return ""
+    if len(text) <= max_chars:
+        return text
+    return f"{text[:max_chars].rstrip()}..."
 
 
 def normalize_search_text(value: Any) -> str:
@@ -1719,23 +1730,88 @@ def serialize_deck_card_for_ai(card: sqlite3.Row) -> Dict[str, Any]:
     schema = get_schema_definition(schema_key)
     return {
         "id": card["id"],
-        "kanji": normalize_text(card["kanji"]),
-        "kana": normalize_text(card["kana"]),
-        "english": normalize_text(card["english"]),
-        "notes": normalize_text(card["notes"]),
+        "kanji": truncate_ai_text(card["kanji"], 80),
+        "kana": truncate_ai_text(card["kana"], 80),
+        "english": truncate_ai_text(card["english"], 220),
+        "notes": truncate_ai_text(card["notes"], 260),
         "schema_key": schema_key,
-        "schema_label": schema.get("Label", schema_key),
+        "schema_label": truncate_ai_text(schema.get("Label", schema_key), 80),
         "word_form": normalize_text(card["word_form"]) or "dictionary",
-        "dictionary_headword": normalize_text(card["dictionary_headword"]),
-        "dictionary_reading": normalize_text(card["dictionary_reading"]),
-        "dictionary_gloss": normalize_text(card["dictionary_gloss"]),
-        "dictionary_pos": normalize_text(card["dictionary_pos"]),
-        "verb_type": normalize_text(card["verb_type"]),
-        "kanji_on_readings": normalize_text(card["kanji_on_readings"]),
-        "kanji_kun_readings": normalize_text(card["kanji_kun_readings"]),
-        "kanji_nanori_readings": normalize_text(card["kanji_nanori_readings"]),
-        "radical_position": normalize_text(card["radical_position"]),
-        "tags": DecodeJsonStringList(card["tags_json"]),
+        "dictionary_headword": truncate_ai_text(card["dictionary_headword"], 80),
+        "dictionary_reading": truncate_ai_text(card["dictionary_reading"], 80),
+        "dictionary_gloss": truncate_ai_text(card["dictionary_gloss"], 180),
+        "dictionary_pos": truncate_ai_text(card["dictionary_pos"], 120),
+        "verb_type": truncate_ai_text(card["verb_type"], 40),
+        "kanji_on_readings": truncate_ai_text(card["kanji_on_readings"], 120),
+        "kanji_kun_readings": truncate_ai_text(card["kanji_kun_readings"], 120),
+        "kanji_nanori_readings": truncate_ai_text(card["kanji_nanori_readings"], 120),
+        "radical_position": truncate_ai_text(card["radical_position"], 80),
+        "tags": DecodeJsonStringList(card["tags_json"])[:8],
+    }
+
+
+def compact_ai_card_for_prompt(card: Dict[str, Any]) -> Dict[str, Any]:
+    if not isinstance(card, dict):
+        return {}
+    return {
+        "id": truncate_ai_text(card.get("id", ""), 80),
+        "kanji": truncate_ai_text(card.get("kanji", ""), 80),
+        "kana": truncate_ai_text(card.get("kana", ""), 80),
+        "english": truncate_ai_text(card.get("english", ""), 220),
+        "notes": truncate_ai_text(card.get("notes", ""), 260),
+        "schema_key": truncate_ai_text(card.get("schema_key", DefaultSchemaKey), 80),
+        "schema_label": truncate_ai_text(card.get("schema_label", ""), 80),
+        "word_form": truncate_ai_text(card.get("word_form", "dictionary"), 40) or "dictionary",
+        "dictionary_headword": truncate_ai_text(card.get("dictionary_headword", ""), 80),
+        "dictionary_reading": truncate_ai_text(card.get("dictionary_reading", ""), 80),
+        "dictionary_gloss": truncate_ai_text(card.get("dictionary_gloss", ""), 180),
+        "dictionary_pos": truncate_ai_text(card.get("dictionary_pos", ""), 120),
+        "verb_type": truncate_ai_text(card.get("verb_type", ""), 40),
+        "kanji_on_readings": truncate_ai_text(card.get("kanji_on_readings", ""), 120),
+        "kanji_kun_readings": truncate_ai_text(card.get("kanji_kun_readings", ""), 120),
+        "kanji_nanori_readings": truncate_ai_text(card.get("kanji_nanori_readings", ""), 120),
+        "radical_position": truncate_ai_text(card.get("radical_position", ""), 80),
+        "tags": parse_tags(card.get("tags", []))[:8],
+    }
+
+
+def compact_ai_schema_for_prompt(schema: Dict[str, Any]) -> Dict[str, Any]:
+    field_labels = schema.get("field_labels", {})
+    if not isinstance(field_labels, dict):
+        field_labels = {}
+    return {
+        "key": truncate_ai_text(schema.get("key", ""), 80),
+        "label": truncate_ai_text(schema.get("label", ""), 80),
+        "front_fields": normalize_string_list(schema.get("front_fields", []))[:12],
+        "back_fields": normalize_string_list(schema.get("back_fields", []))[:12],
+        "field_labels": {
+            truncate_ai_text(field_name, 80): truncate_ai_text(label, 80)
+            for field_name, label in field_labels.items()
+        },
+    }
+
+
+def compact_ai_kanji_profile_for_prompt(profile: Dict[str, Any]) -> Dict[str, Any]:
+    if not isinstance(profile, dict):
+        return {}
+    return {
+        "known_kanji_characters": normalize_string_list(profile.get("known_kanji_characters", []))[:80],
+        "known_words": normalize_string_list(profile.get("known_words", []))[:32],
+        "guidance": truncate_ai_text(profile.get("guidance", ""), 260),
+    }
+
+
+def compact_ai_proposal_item_for_prompt(item: Dict[str, Any]) -> Dict[str, Any]:
+    if not isinstance(item, dict):
+        return {}
+    existing_card = item.get("existing_card")
+    return {
+        "id": truncate_ai_text(item.get("id", ""), 80),
+        "operation": truncate_ai_text(item.get("operation", ""), 20),
+        "target_card_id": truncate_ai_text(item.get("target_card_id", ""), 80),
+        "reason": truncate_ai_text(item.get("reason", ""), 240),
+        "card": compact_ai_card_for_prompt(item.get("card", {})),
+        "existing_card": compact_ai_card_for_prompt(existing_card) if isinstance(existing_card, dict) else None,
     }
 
 
@@ -1776,16 +1852,19 @@ def build_ai_deck_change_request(
         "task": "Propose flashcard deck changes for user review before applying.",
         "deck_id": deck_id,
         "request_mode": mode,
-        "user_prompt": prompt,
-        "review_feedback_for_selected_items": feedback,
+        "user_prompt": truncate_ai_text(prompt, 2400),
+        "review_feedback_for_selected_items": truncate_ai_text(feedback, 1600),
         "target_count": target_count,
         "default_schema_key": default_schema_key,
-        "available_schemas": schemas,
-        "current_deck_cards": deck_cards[:80],
-        "selected_items_to_revise": selected_items or [],
-        "preferred_vocabulary": learning_context["preferred_vocabulary"][:48],
-        "support_vocabulary": learning_context["support_vocabulary"][:96],
-        "kanji_profile": learning_context["kanji_profile"],
+        "available_schemas": [compact_ai_schema_for_prompt(schema) for schema in schemas],
+        "current_deck_cards": [compact_ai_card_for_prompt(card) for card in deck_cards[:80]],
+        "selected_items_to_revise": [
+            compact_ai_proposal_item_for_prompt(item)
+            for item in (selected_items or [])[:40]
+        ],
+        "preferred_vocabulary": learning_context["preferred_vocabulary"][:32],
+        "support_vocabulary": learning_context["support_vocabulary"][:32],
+        "kanji_profile": compact_ai_kanji_profile_for_prompt(learning_context["kanji_profile"]),
         "rules": [
             "Return proposal items only. Do not say that anything has been saved.",
             "Use operation 'add' for new cards and operation 'update' for existing cards.",
@@ -2778,9 +2857,9 @@ def build_vocabulary_seed_from_rows(
     for row in rows:
         if len(items) >= limit:
             break
-        word = normalize_text(row["dictionary_headword"] or row["kanji"])
-        reading = normalize_text(row["dictionary_reading"] or row["kana"]) or word
-        meaning = normalize_text(row["dictionary_gloss"] or row["english"])
+        word = truncate_ai_text(row["dictionary_headword"] or row["kanji"], 80)
+        reading = truncate_ai_text(row["dictionary_reading"] or row["kana"], 80) or word
+        meaning = truncate_ai_text(row["dictionary_gloss"] or row["english"], 180)
         if not word or not reading:
             continue
         dedupe_key = f"{word}|{reading}"
@@ -2809,7 +2888,7 @@ def build_deck_kanji_profile(deck_rows: List[Any], vocabulary: List[Dict[str, st
         for char in word:
             if "\u4e00" <= char <= "\u9fff" and char not in known_characters:
                 known_characters.append(char)
-        if len(known_characters) >= 120 and len(known_words) >= 48:
+        if len(known_characters) >= 80 and len(known_words) >= 32:
             break
 
     if not known_words:
@@ -2818,12 +2897,12 @@ def build_deck_kanji_profile(deck_rows: List[Any], vocabulary: List[Dict[str, st
             reading = normalize_text(row["kana"])
             if word and word != reading and word not in known_words:
                 known_words.append(word)
-            if len(known_words) >= 48:
+            if len(known_words) >= 32:
                 break
 
     return {
-        "known_kanji_characters": known_characters[:120],
-        "known_words": known_words[:48],
+        "known_kanji_characters": known_characters[:80],
+        "known_words": known_words[:32],
         "guidance": (
             "Prefer kanji already present in known_words or known_kanji_characters. "
             "For important words outside that level, write them in kana or include a kana reading in parentheses."
@@ -2947,15 +3026,22 @@ def append_conversation_message(
     messages: List[Dict[str, Any]],
     role: str,
     content: str,
+    audioBase64: str = "",
+    audioMimeType: str = "",
+    inputMode: str = "",
 ) -> List[Dict[str, Any]]:
     next_messages = list(messages)
-    next_messages.append(
-        {
-            "role": normalize_text(role),
-            "content": normalize_text(content),
-            "timestamp": time.time(),
-        }
-    )
+    message = {
+        "role": normalize_text(role),
+        "content": normalize_text(content),
+        "timestamp": time.time(),
+    }
+    if audioBase64:
+        message["audio_base64"] = audioBase64
+        message["audio_mime_type"] = audioMimeType or "audio/mpeg"
+    if inputMode:
+        message["input_mode"] = inputMode
+    next_messages.append(message)
     return next_messages
 
 
@@ -3223,6 +3309,8 @@ def action_create_conversation_scenario(payload: Dict[str, Any]) -> Dict[str, An
 def action_start_conversation_session(payload: Dict[str, Any]) -> Dict[str, Any]:
     deck_id = normalize_text(payload.get("deck_id", ""))
     scenario_id = normalize_text(payload.get("scenario_id", ""))
+    spoken_mode = bool(payload.get("spoken", False))
+    voice = normalize_text(payload.get("voice", "alloy")) or "alloy"
     if not deck_id or not scenario_id:
         raise RuntimeError("deck_id and scenario_id are required.")
     require_accessible_deck(deck_id, require_write=False)
@@ -3244,7 +3332,15 @@ def action_start_conversation_session(payload: Dict[str, Any]) -> Dict[str, Any]
         scenario,
         kanjiProfile=kanji_profile,
     )
-    messages = append_conversation_message([], "assistant", opening["opening_message"])
+    assistant_audio = GenerateSpeechAudio(client, opening["opening_message"], voice) if spoken_mode else {}
+    messages = append_conversation_message(
+        [],
+        "assistant",
+        opening["opening_message"],
+        audioBase64=assistant_audio.get("audio_base64", ""),
+        audioMimeType=assistant_audio.get("audio_mime_type", ""),
+        inputMode="voice" if spoken_mode else "text",
+    )
     session = CreateConversationSession(connection, get_request_user_id(), scenario_id, deck_id, messages)
     IncrementAiScenarioUsage(connection, scenario_id)
 
@@ -3254,6 +3350,8 @@ def action_start_conversation_session(payload: Dict[str, Any]) -> Dict[str, Any]
         "session_id": session["id"],
         "partner_name": opening["partner_name"],
         "messages": session["messages"],
+        "audio_base64": assistant_audio.get("audio_base64", ""),
+        "audio_mime_type": assistant_audio.get("audio_mime_type", ""),
     }
 
 
@@ -3301,6 +3399,70 @@ def action_send_conversation_message(payload: Dict[str, Any]) -> Dict[str, Any]:
         "session_id": session_id,
         "messages": session["messages"],
         "assistant_message": reply["reply"],
+        "should_wrap_up": bool(reply["should_wrap_up"]),
+    }
+
+
+def action_send_spoken_conversation_audio(payload: Dict[str, Any]) -> Dict[str, Any]:
+    session_id = normalize_text(payload.get("session_id", ""))
+    audio_path = normalize_text(payload.get("audio_path", ""))
+    voice = normalize_text(payload.get("voice", "alloy")) or "alloy"
+    if not session_id or not audio_path:
+        raise RuntimeError("session_id and audio_path are required.")
+    require_ai_user()
+
+    connection = get_connection()
+    session_row = GetConversationSession(connection, session_id)
+    if normalize_text(session_row["owner_user_id"]) != get_request_user_id():
+        raise RuntimeError("Conversation session not found.")
+    if normalize_text(session_row["status"]) != "active":
+        raise RuntimeError("Conversation session is already completed.")
+
+    client = GetOpenAiClient()
+    transcript = TranscribeAudioFile(client, audio_path, model="whisper-1")
+    if not transcript:
+        raise RuntimeError("The audio could not be transcribed.")
+
+    scenario_row = GetAiScenario(connection, normalize_text(session_row["scenario_id"]))
+    scenario = build_scenario_prompt_payload(scenario_row)
+    _, deck_rows, _, preferred_vocabulary, support_vocabulary = build_learning_vocabulary_context(
+        normalize_text(session_row["deck_id"])
+    )
+    kanji_profile = build_deck_kanji_profile(deck_rows, preferred_vocabulary)
+    current_messages = json.loads(session_row["messages_json"] or "[]")
+    if not isinstance(current_messages, list):
+        current_messages = []
+
+    reply = GenerateConversationReply(
+        client,
+        DefaultModel,
+        preferred_vocabulary,
+        support_vocabulary,
+        scenario,
+        current_messages,
+        transcript,
+        kanjiProfile=kanji_profile,
+    )
+    assistant_audio = GenerateSpeechAudio(client, reply["reply"], voice)
+
+    next_messages = append_conversation_message(current_messages, "user", transcript, inputMode="voice")
+    next_messages = append_conversation_message(
+        next_messages,
+        "assistant",
+        reply["reply"],
+        audioBase64=assistant_audio.get("audio_base64", ""),
+        audioMimeType=assistant_audio.get("audio_mime_type", ""),
+        inputMode="voice",
+    )
+    session = UpdateConversationSession(connection, session_id, next_messages)
+
+    return {
+        "session_id": session_id,
+        "messages": session["messages"],
+        "transcript": transcript,
+        "assistant_message": reply["reply"],
+        "audio_base64": assistant_audio.get("audio_base64", ""),
+        "audio_mime_type": assistant_audio.get("audio_mime_type", ""),
         "should_wrap_up": bool(reply["should_wrap_up"]),
     }
 
@@ -3570,6 +3732,7 @@ ACTIONS = {
     "create_conversation_scenario": action_create_conversation_scenario,
     "start_conversation_session": action_start_conversation_session,
     "send_conversation_message": action_send_conversation_message,
+    "send_spoken_conversation_audio": action_send_spoken_conversation_audio,
     "complete_conversation_session": action_complete_conversation_session,
     "generate_reading_comprehension": action_generate_reading_comprehension,
     "add_reading_new_word": action_add_reading_new_word,

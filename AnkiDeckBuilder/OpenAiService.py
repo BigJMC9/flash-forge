@@ -567,6 +567,36 @@ def NormalizeStringArray(values: Any) -> List[str]:
     return normalizedItems
 
 
+def TruncatePromptText(value: Any, maxCharacters: int) -> str:
+    text = str(value or "").strip()
+    if maxCharacters <= 0:
+        return ""
+    if len(text) <= maxCharacters:
+        return text
+    return f"{text[:maxCharacters].rstrip()}..."
+
+
+def BuildTextConversationHistory(history: List[Dict[str, Any]], limit: int) -> List[Dict[str, str]]:
+    if limit <= 0:
+        return []
+
+    normalizedHistory: List[Dict[str, str]] = []
+    for rawMessage in (history or [])[-limit:]:
+        if not isinstance(rawMessage, dict):
+            continue
+        role = str(rawMessage.get("role") or "").strip()
+        content = TruncatePromptText(rawMessage.get("content"), 1200)
+        if not role or not content:
+            continue
+        normalizedHistory.append(
+            {
+                "role": role,
+                "content": content,
+            }
+        )
+    return normalizedHistory
+
+
 def NormalizeReadingQuestions(rawQuestions: Any, minimumCount: int = 1) -> List[Dict[str, Any]]:
     questions: List[Dict[str, Any]] = []
     for index, rawQuestion in enumerate(rawQuestions or [], start=1):
@@ -931,8 +961,8 @@ def GenerateConversationReply(
         "preferred_vocabulary": preferredVocabulary[:40],
         "support_vocabulary": supportVocabulary[:72],
         "kanji_profile": kanjiProfile or {},
-        "conversation_history": history[-12:],
-        "latest_user_message": (userMessage or "").strip(),
+        "conversation_history": BuildTextConversationHistory(history, 12),
+        "latest_user_message": TruncatePromptText(userMessage, 1600),
         "rules": [
             "Reply entirely in Japanese.",
             "Stay in character for the scenario.",
@@ -984,7 +1014,7 @@ def GenerateConversationFeedback(
     promptPayload = {
         "task": "Evaluate a Japanese learner conversation.",
         "scenario": scenario,
-        "conversation_history": history[-20:],
+        "conversation_history": BuildTextConversationHistory(history, 20),
         "rules": [
             "Assess the learner's Japanese performance.",
             "Be concrete and concise.",
@@ -1035,6 +1065,53 @@ def GenerateConversationFeedback(
         "strengths": NormalizeStringArray(parsed.get("strengths")),
         "weaknesses": NormalizeStringArray(parsed.get("weaknesses")),
         "improvements": NormalizeStringArray(parsed.get("improvements")),
+    }
+
+
+def TranscribeAudioFile(
+    client: OpenAI,
+    audioPath: str,
+    model: str = "whisper-1",
+) -> str:
+    with open(audioPath, "rb") as audioFile:
+        transcript = client.audio.transcriptions.create(
+            model=model,
+            file=audioFile,
+        )
+
+    if isinstance(transcript, dict):
+        return str(transcript.get("text") or "").strip()
+    return str(getattr(transcript, "text", "") or "").strip()
+
+
+def ReadBinaryAudioResponse(response: Any) -> bytes:
+    if hasattr(response, "read"):
+        data = response.read()
+        if isinstance(data, bytes):
+            return data
+    content = getattr(response, "content", None)
+    if isinstance(content, bytes):
+        return content
+    if isinstance(response, bytes):
+        return response
+    return bytes(response)
+
+
+def GenerateSpeechAudio(
+    client: OpenAI,
+    text: str,
+    voice: str = "alloy",
+) -> Dict[str, str]:
+    response = client.audio.speech.create(
+        model="gpt-4o-mini-tts",
+        voice=(voice or "alloy").strip() or "alloy",
+        input=(text or "").strip(),
+        response_format="mp3",
+    )
+    audioBytes = ReadBinaryAudioResponse(response)
+    return {
+        "audio_base64": base64.b64encode(audioBytes).decode("ascii"),
+        "audio_mime_type": "audio/mpeg",
     }
 
 

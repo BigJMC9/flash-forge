@@ -405,6 +405,9 @@ export interface ConversationMessage {
   role: 'assistant' | 'user' | string;
   content: string;
   timestamp?: number;
+  audio_base64?: string;
+  audio_mime_type?: string;
+  input_mode?: 'text' | 'voice' | string;
 }
 
 export interface ConversationStartResponse {
@@ -413,6 +416,8 @@ export interface ConversationStartResponse {
   session_id: string;
   partner_name: string;
   messages: ConversationMessage[];
+  audio_base64?: string;
+  audio_mime_type?: string;
 }
 
 export interface ConversationSendResponse {
@@ -420,6 +425,9 @@ export interface ConversationSendResponse {
   messages: ConversationMessage[];
   assistant_message: string;
   should_wrap_up: boolean;
+  transcript?: string;
+  audio_base64?: string;
+  audio_mime_type?: string;
 }
 
 export interface ConversationFeedback {

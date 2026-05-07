@@ -9,12 +9,36 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from AnkiDeckBuilder.OpenAiService import (  # noqa: E402
+    BuildTextConversationHistory,
     GenerateReadingQuestionsFromPassage,
     GenerateScenarioSuggestions,
 )
 
 
 class OpenAiServiceJsonShapeTests(unittest.TestCase):
+    def test_text_conversation_history_strips_audio_payloads(self) -> None:
+        result = BuildTextConversationHistory(
+            [
+                {
+                    "role": "assistant",
+                    "content": "こんにちは。",
+                    "audio_base64": "a" * 50000,
+                    "audio_mime_type": "audio/mpeg",
+                },
+                {
+                    "role": "user",
+                    "content": "長い返事" * 500,
+                    "input_mode": "voice",
+                },
+            ],
+            12,
+        )
+
+        self.assertEqual(result[0], {"role": "assistant", "content": "こんにちは。"})
+        self.assertEqual(result[1]["role"], "user")
+        self.assertNotIn("audio_base64", result[0])
+        self.assertLessEqual(len(result[1]["content"]), 1203)
+
     @patch("AnkiDeckBuilder.OpenAiService.RequestResponseText")
     def test_generate_scenario_suggestions_accepts_top_level_list(
         self,
